@@ -1,0 +1,107 @@
+[
+  {
+    "name": "FeConect - VPS Daily Summary Telegram",
+    "description": "Resumo diario da VPS com status e metricas essenciais enviado ao Telegram.",
+    "active": false,
+    "isArchived": false,
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "cronExpression",
+                "expression": "0 9 * * *"
+              }
+            ]
+          }
+        },
+        "name": "Daily 09:00",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "authentication": "privateKey",
+          "command": "python3 - <<'PY'\nfrom datetime import datetime\nfrom zoneinfo import ZoneInfo\nimport json\nimport os\nimport shutil\nimport subprocess\nimport time\n\nsummary = {\n    'checked_at': None,\n    'vps_status': 'ON',\n    'uptime_human': 'n/d',\n    'load_avg': [],\n    'cpu_usage_pct': None,\n    'cpu_cores': os.cpu_count() or 0,\n    'ram_used_gb': None,\n    'ram_total_gb': None,\n    'ram_usage_pct': None,\n    'swap_used_gb': None,\n    'swap_total_gb': None,\n    'swap_usage_pct': None,\n    'disk_used_gb': None,\n    'disk_total_gb': None,\n    'disk_usage_pct': None,\n    'disk_free_gb': None,\n    'disk_mount': '/',\n    'inode_usage_pct': None,\n    'docker_running_containers': 0,\n    'docker_restart_count': 0,\n    'top_processes': [],\n    'meta_error': None,\n}\n\ndef to_gb(bytes_value):\n    return round(bytes_value / (1024 ** 3), 2)\n\ntry:\n    now_local = datetime.now(ZoneInfo('America/Sao_Paulo'))\n    summary['checked_at'] = now_local.isoformat()\n\n    with open('/proc/uptime', 'r', encoding='utf-8') as fh:\n        uptime_seconds = float(fh.read().split()[0])\n    days = int(uptime_seconds // 86400)\n    hours = int((uptime_seconds % 86400) // 3600)\n    minutes = int((uptime_seconds % 3600) // 60)\n    uptime_parts = []\n    if days:\n        uptime_parts.append(f'{days}d')\n    if hours or days:\n        uptime_parts.append(f'{hours}h')\n    uptime_parts.append(f'{minutes}m')\n    summary['uptime_human'] = ' '.join(uptime_parts)\n    summary['load_avg'] = [round(value, 2) for value in os.getloadavg()]\n\n    def read_cpu_times():\n        with open('/proc/stat', 'r', encoding='utf-8') as fh:\n            return [int(value) for value in fh.readline().split()[1:]]\n\n    first = read_cpu_times()\n    time.sleep(1)\n    second = read_cpu_times()\n    idle_delta = (second[3] + second[4]) - (first[3] + first[4])\n    total_delta = sum(second) - sum(first)\n    if total_delta > 0:\n        summary['cpu_usage_pct'] = round((1 - (idle_delta / total_delta)) * 100, 2)\n\n    with open('/proc/meminfo', 'r', encoding='utf-8') as fh:\n        meminfo = {}\n        for line in fh:\n            key, raw = line.split(':', 1)\n            meminfo[key] = int(raw.strip().split()[0]) * 1024\n    mem_total = meminfo.get('MemTotal', 0)\n    mem_available = meminfo.get('MemAvailable', 0)\n    mem_used = max(mem_total - mem_available, 0)\n    summary['ram_total_gb'] = to_gb(mem_total)\n    summary['ram_used_gb'] = to_gb(mem_used)\n    if mem_total > 0:\n        summary['ram_usage_pct'] = round((mem_used / mem_total) * 100, 2)\n\n    swap_total = meminfo.get('SwapTotal', 0)\n    swap_free = meminfo.get('SwapFree', 0)\n    swap_used = max(swap_total - swap_free, 0)\n    summary['swap_total_gb'] = to_gb(swap_total)\n    summary['swap_used_gb'] = to_gb(swap_used)\n    summary['swap_usage_pct'] = round((swap_used / swap_total) * 100, 2) if swap_total > 0 else 0.0\n\n    disk = shutil.disk_usage('/')\n    summary['disk_total_gb'] = to_gb(disk.total)\n    summary['disk_used_gb'] = to_gb(disk.used)\n    summary['disk_free_gb'] = to_gb(disk.free)\n    if disk.total > 0:\n        summary['disk_usage_pct'] = round((disk.used / disk.total) * 100, 2)\n\n    inode_proc = subprocess.run(['df', '-i', '/'], capture_output=True, text=True, check=False)\n    inode_lines = [line for line in inode_proc.stdout.splitlines() if line.strip()]\n    if len(inode_lines) >= 2:\n        inode_parts = inode_lines[1].split()\n        if len(inode_parts) >= 5:\n            summary['inode_usage_pct'] = inode_parts[4]\n\n    docker_ps = subprocess.run(['docker', 'ps', '--format', '{{.Names}}|{{.Status}}'], capture_output=True, text=True, check=False)\n    running = [line.strip() for line in docker_ps.stdout.splitlines() if line.strip()]\n    summary['docker_running_containers'] = len(running)\n\n    docker_all = subprocess.run(['docker', 'ps', '-a', '--format', '{{.Names}}|{{.RunningFor}}|{{.Status}}'], capture_output=True, text=True, check=False)\n    restart_count = 0\n    for line in docker_all.stdout.splitlines():\n        if 'Restarting' in line:\n            restart_count += 1\n    summary['docker_restart_count'] = restart_count\n\n    top_proc = subprocess.run(['ps', '-eo', 'pid,comm,%cpu,%mem', '--sort=-%cpu'], capture_output=True, text=True, check=False)\n    for line in top_proc.stdout.splitlines()[1:4]:\n        parts = line.split(None, 3)\n        if len(parts) == 4:\n            summary['top_processes'].append({\n                'pid': parts[0],\n                'command': parts[1],\n                'cpu_pct': parts[2],\n                'mem_pct': parts[3],\n            })\nexcept Exception as exc:\n    summary['vps_status'] = 'OFF'\n    summary['meta_error'] = str(exc)\n\nprint(json.dumps(summary, ensure_ascii=True))\n\nPY"
+        },
+        "name": "Fetch VPS Metrics",
+        "type": "n8n-nodes-base.ssh",
+        "typeVersion": 1,
+        "position": [
+          288,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const payload = (() => {\n  try {\n    return JSON.parse(String(items[0]?.json?.stdout ?? '{}'));\n  } catch {\n    return {};\n  }\n})();\n\nconst toNumber = (value, digits = 2) => {\n  const parsed = Number(value);\n  return Number.isFinite(parsed) ? parsed.toFixed(digits) : 'n/d';\n};\nconst formatLoad = (value) => Array.isArray(value) && value.length === 3 ? value.join(' | ') : 'n/d';\nconst formatTop = (value) => Array.isArray(value) && value.length > 0\n  ? value.map((entry) => `${entry.command} pid=${entry.pid} cpu=${entry.cpu_pct}% mem=${entry.mem_pct}%`).join('; ')\n  : 'n/d';\n\nconst messageLines = [\n  'Resumo VPS FeConect',\n  '',\n  `Status da VPS: ${String(payload.vps_status ?? 'OFF').toUpperCase()}`,\n  `- checado em: ${payload.checked_at ?? 'n/d'}`,\n  `- uptime: ${payload.uptime_human ?? 'n/d'}`,\n  `- load average: ${formatLoad(payload.load_avg)}`,\n  '',\n  'Capacidade atual:',\n  `- CPU: ${toNumber(payload.cpu_usage_pct)}% em ${payload.cpu_cores ?? 'n/d'} cores`,\n  `- RAM: ${toNumber(payload.ram_used_gb)} GB / ${toNumber(payload.ram_total_gb)} GB (${toNumber(payload.ram_usage_pct)}%)`,\n  `- Swap: ${toNumber(payload.swap_used_gb)} GB / ${toNumber(payload.swap_total_gb)} GB (${toNumber(payload.swap_usage_pct)}%)`,\n  `- Disco /: ${toNumber(payload.disk_used_gb)} GB / ${toNumber(payload.disk_total_gb)} GB (${toNumber(payload.disk_usage_pct)}%)`,\n  `- Disco livre /: ${toNumber(payload.disk_free_gb)} GB | inodes usados: ${payload.inode_usage_pct ?? 'n/d'}`,\n  '',\n  'Containers e processos:',\n  `- containers Docker em execucao: ${payload.docker_running_containers ?? 0}`,\n  `- containers reiniciando: ${payload.docker_restart_count ?? 0}`,\n  `- top processos por CPU: ${formatTop(payload.top_processes)}`,\n];\n\nif (payload.meta_error) {\n  messageLines.push('', `- observacao: coleta parcial (${payload.meta_error})`);\n}\n\nreturn [{\n  json: {\n    message: messageLines.join('\\n'),\n    summary: payload,\n  },\n}];\n"
+        },
+        "name": "Format VPS Message",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          560,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+          "text": "={{ $json.message }}",
+          "additionalFields": {}
+        },
+        "name": "Telegram VPS Summary",
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          832,
+          0
+        ]
+      }
+    ],
+    "connections": {
+      "Daily 09:00": {
+        "main": [
+          [
+            {
+              "node": "Fetch VPS Metrics",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Fetch VPS Metrics": {
+        "main": [
+          [
+            {
+              "node": "Format VPS Message",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Format VPS Message": {
+        "main": [
+          [
+            {
+              "node": "Telegram VPS Summary",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1",
+      "binaryMode": "separate"
+    }
+  }
+]
