@@ -81,7 +81,7 @@
             "parameters": [
               {
                 "name": "key",
-                "value": "AIzaSyAhXx3UVidZkldcurNczL-5I12r3Q0b3ls"
+                "value": "={{ $env.GOOGLE_API_KEY }}"
               }
             ]
           },
@@ -119,7 +119,7 @@
             "parameters": [
               {
                 "name": "key",
-                "value": "AIzaSyAhXx3UVidZkldcurNczL-5I12r3Q0b3ls"
+                "value": "={{ $env.GOOGLE_API_KEY }}"
               }
             ]
           },
