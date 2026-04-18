@@ -71,7 +71,7 @@
       },
       {
         "parameters": {
-          "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+          "chatId": "={{ $env.FECONECT_TELEGRAM_CHAT_ID }}",
           "text": "={{ $json.message }}",
           "additionalFields": {
             "appendAttribution": false,

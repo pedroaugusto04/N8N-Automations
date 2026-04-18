@@ -51,7 +51,7 @@
       },
       {
         "parameters": {
-          "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+          "chatId": "={{ $env.VPS_TELEGRAM_CHAT_ID }}",
           "text": "={{ $json.message }}",
           "additionalFields": {}
         },

@@ -1,0 +1,1 @@
+[{"updatedAt": "2026-04-18T18:20:00.000Z", "createdAt": "2026-04-18T18:20:00.000Z", "id": "tgCredFecon24001", "name": "Telegram FeConect", "data": {"accessToken": "8601485580:AAEJBJdCsvT3_hftHwEt5-abCzhDBQMwy1A"}, "type": "telegramApi", "isManaged": false, "isGlobal": false, "isResolvable": false, "resolvableAllowFallback": false, "resolverId": null}]
