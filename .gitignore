@@ -13,3 +13,7 @@ data/
 *.pem
 *.key
 *.crt
+*.export.json
+*.cred.json
+*.cred.export.json
+backups/
