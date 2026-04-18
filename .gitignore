@@ -16,4 +16,7 @@ data/
 *.export.json
 *.cred.json
 *.cred.export.json
+*-backup*.json
+*backup-*.json
+all-workflows-*.json
 backups/
