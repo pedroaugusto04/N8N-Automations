@@ -1,0 +1,145 @@
+[
+  {
+    "name": "FeConect - Anomaly Detection Telegram",
+    "description": null,
+    "active": false,
+    "isArchived": false,
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "cronExpression",
+                "expression": "*/10 * * * *"
+              }
+            ]
+          }
+        },
+        "name": "Every 10 Minutes",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          -1056,
+          80
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "WITH current_payments AS (\n  SELECT COUNT(*)::numeric AS current_ok\n  FROM public.subscription_payments sp\n  WHERE COALESCE(sp.last_gateway_event_at, sp.paid_at, sp.updated_at, sp.created_at) >= CURRENT_TIMESTAMP - INTERVAL '60 minutes'\n    AND sp.status IN ('RECEIVED', 'CONFIRMED')\n), historical_payments AS (\n  SELECT COALESCE(AVG(bucket.qty), 0)::numeric AS avg_ok\n  FROM (\n    SELECT\n      date_trunc('hour', timezone('America/Sao_Paulo', COALESCE(sp.last_gateway_event_at, sp.paid_at, sp.updated_at, sp.created_at))) AS bucket_hour,\n      COUNT(*)::numeric AS qty\n    FROM public.subscription_payments sp\n    WHERE COALESCE(sp.last_gateway_event_at, sp.paid_at, sp.updated_at, sp.created_at) >= CURRENT_TIMESTAMP - INTERVAL '14 days'\n      AND COALESCE(sp.last_gateway_event_at, sp.paid_at, sp.updated_at, sp.created_at) < CURRENT_TIMESTAMP - INTERVAL '60 minutes'\n      AND sp.status IN ('RECEIVED', 'CONFIRMED')\n      AND EXTRACT(HOUR FROM timezone('America/Sao_Paulo', COALESCE(sp.last_gateway_event_at, sp.paid_at, sp.updated_at, sp.created_at))) = EXTRACT(HOUR FROM timezone('America/Sao_Paulo', CURRENT_TIMESTAMP))\n    GROUP BY 1\n  ) AS bucket\n), current_failed_webhooks AS (\n  SELECT COUNT(*)::numeric AS current_failed\n  FROM public.gateway_webhook_events gwe\n  WHERE COALESCE(gwe.updated_at, gwe.created_at) >= CURRENT_TIMESTAMP - INTERVAL '60 minutes'\n    AND gwe.status = 'FAILED'\n), historical_failed_webhooks AS (\n  SELECT COALESCE(AVG(bucket.qty), 0)::numeric AS avg_failed\n  FROM (\n    SELECT\n      date_trunc('hour', timezone('America/Sao_Paulo', COALESCE(gwe.updated_at, gwe.created_at))) AS bucket_hour,\n      COUNT(*)::numeric AS qty\n    FROM public.gateway_webhook_events gwe\n    WHERE COALESCE(gwe.updated_at, gwe.created_at) >= CURRENT_TIMESTAMP - INTERVAL '14 days'\n      AND COALESCE(gwe.updated_at, gwe.created_at) < CURRENT_TIMESTAMP - INTERVAL '60 minutes'\n      AND gwe.status = 'FAILED'\n      AND EXTRACT(HOUR FROM timezone('America/Sao_Paulo', COALESCE(gwe.updated_at, gwe.created_at))) = EXTRACT(HOUR FROM timezone('America/Sao_Paulo', CURRENT_TIMESTAMP))\n    GROUP BY 1\n  ) AS bucket\n)\nSELECT\n  cp.current_ok,\n  hp.avg_ok,\n  cfw.current_failed,\n  hfw.avg_failed\nFROM current_payments cp\nCROSS JOIN historical_payments hp\nCROSS JOIN current_failed_webhooks cfw\nCROSS JOIN historical_failed_webhooks hfw;",
+          "options": {}
+        },
+        "name": "Query Anomaly Metrics",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.5,
+        "position": [
+          -768,
+          80
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const row = items[0]?.json ?? {};\nconst currentOk = Number(row.current_ok ?? 0);\nconst avgOk = Number(row.avg_ok ?? 0);\nconst currentFailed = Number(row.current_failed ?? 0);\nconst avgFailed = Number(row.avg_failed ?? 0);\n\nconst alerts = [];\nif (avgOk >= 5 && currentOk < avgOk * 0.4) {\n  alerts.push(`queda anormal de pagamentos: janela atual=${currentOk}, baseline=${avgOk.toFixed(2)}`);\n}\nif (currentFailed >= 3 && currentFailed > Math.max(avgFailed * 2, 3)) {\n  alerts.push(`alta anormal de webhooks com falha: janela atual=${currentFailed}, baseline=${avgFailed.toFixed(2)}`);\n}\n\nif (alerts.length === 0) {\n  const store = typeof $getWorkflowStaticData === 'function' ? $getWorkflowStaticData('global') : null;\n  if (store) {\n    delete store.lastAlertSignature;\n    delete store.lastAlertSentAt;\n  }\n  return [];\n}\n\nconst signature = JSON.stringify(alerts);\nconst now = Date.now();\nconst cooldownMs = 60 * 60 * 1000;\nconst store = typeof $getWorkflowStaticData === 'function' ? $getWorkflowStaticData('global') : null;\n\nif (store) {\n  const lastSignature = String(store.lastAlertSignature ?? '');\n  const lastSentAt = Number(store.lastAlertSentAt ?? 0);\n  const withinCooldown = lastSignature === signature && lastSentAt > 0 && now - lastSentAt < cooldownMs;\n\n  if (withinCooldown) {\n    return [];\n  }\n\n  store.lastAlertSignature = signature;\n  store.lastAlertSentAt = now;\n}\n\nconst message = [\n  'Alerta FeConect: comportamento anormal detectado',\n  '',\n  ...alerts.map((line) => `- ${line}`),\n  '',\n  `metricas: pagamentos_ok_hora=${currentOk} (baseline ${avgOk.toFixed(2)}), webhooks_falhos_hora=${currentFailed} (baseline ${avgFailed.toFixed(2)})`,\n].join('\\n');\n\nreturn [{ json: { hasAlerts: true, alerts, message, metrics: row } }];"
+        },
+        "name": "Detect Anomalies",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -480,
+          80
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "boolean": [
+              {
+                "value1": "={{ $json.hasAlerts }}",
+                "operation": "isTrue"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "name": "Has Anomaly?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          -240,
+          80
+        ]
+      },
+      {
+        "parameters": {
+          "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+          "text": "={{ $json.message }}",
+          "additionalFields": {
+            "appendAttribution": false
+          }
+        },
+        "name": "Telegram Anomaly Alert",
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          0
+        ]
+      }
+    ],
+    "connections": {
+      "Every 10 Minutes": {
+        "main": [
+          [
+            {
+              "node": "Query Anomaly Metrics",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Query Anomaly Metrics": {
+        "main": [
+          [
+            {
+              "node": "Detect Anomalies",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Detect Anomalies": {
+        "main": [
+          [
+            {
+              "node": "Has Anomaly?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Has Anomaly?": {
+        "main": [
+          [
+            {
+              "node": "Telegram Anomaly Alert",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1",
+      "binaryMode": "separate"
+    },
+    "settings": {
+      "executionOrder": "v1",
+      "binaryMode": "separate"
+    }
+  }
+]
