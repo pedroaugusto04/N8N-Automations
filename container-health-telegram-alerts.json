@@ -4,7 +4,7 @@
     "name": "Docker Container Health Alerts Telegram",
     "description": "Monitora todos os containers Docker via SSH a cada 10 minutos e envia alerta no Telegram quando algum container estiver inativo, unhealthy ou quando o ping HTTP configurado retornar status diferente de 200. O cooldown por servico e configuravel via env CONTAINER_ALERT_COOLDOWN_HOURS.",
     "active": false,
-    "isArchived": false, 
+    "isArchived": false,  
     "nodes": [
       {
         "parameters": {
