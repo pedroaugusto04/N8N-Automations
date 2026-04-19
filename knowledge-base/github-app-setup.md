@@ -12,8 +12,11 @@ Use this mode to decouple the knowledge-base ingestion flow from individual repo
 
 - `KB_WEBHOOK_SECRET`: shared secret used by `kb-note`
 - `KB_GITHUB_APP_WEBHOOK_SECRET`: GitHub App webhook secret used to validate `x-hub-signature-256`
-- `KB_OPENAI_API_KEY`: optional, enables AI-generated summaries
+- `KB_AI_PROVIDER`: optional, `openai`, `gemini`, or `auto` (default `openai`)
+- `KB_OPENAI_API_KEY`: optional, required when provider is `openai`
 - `KB_OPENAI_MODEL`: optional, defaults to `gpt-4.1-mini`
+- `KB_GEMINI_API_KEY`: optional, required when provider is `gemini`
+- `KB_GEMINI_MODEL`: optional, defaults to `gemini-1.5-flash`
 - `KB_ENABLE_GIT_PUSH`: optional, when `true` the vault clone will push to `origin`
 - `KB_VAULT_REMOTE_URL`: optional remote URL for the knowledge vault repository
 

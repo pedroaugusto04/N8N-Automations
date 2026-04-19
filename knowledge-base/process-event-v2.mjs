@@ -10,14 +10,19 @@ const execFile = promisify(execFileCb);
 const vaultPath = process.env.KB_VAULT_PATH || '/home/node/knowledge-vault';
 const manifestPath = process.env.KB_PROJECTS_MANIFEST || '/home/node/knowledge-base/projects.json';
 const semanticTextVersion = 1;
-const analysisModel = (process.env.KB_OPENAI_MODEL || '').trim();
-const analysisApiKey = (process.env.KB_OPENAI_API_KEY || '').trim();
+const aiProvider = (process.env.KB_AI_PROVIDER || 'openai').trim().toLowerCase();
+const openaiModel = (process.env.KB_OPENAI_MODEL || '').trim();
+const openaiApiKey = (process.env.KB_OPENAI_API_KEY || '').trim();
+const geminiModel = (process.env.KB_GEMINI_MODEL || 'gemini-1.5-flash').trim();
+const geminiApiKey = (process.env.KB_GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
 const webhookSecret = (process.env.KB_WEBHOOK_SECRET || '').trim();
 const githubWebhookSecret = (process.env.KB_GITHUB_APP_WEBHOOK_SECRET || '').trim();
 const enableGitPush = String(process.env.KB_ENABLE_GIT_PUSH || 'false').toLowerCase() === 'true';
 const vaultRemoteUrl = (process.env.KB_VAULT_REMOTE_URL || '').trim();
 const gitUserName = (process.env.KB_VAULT_GIT_USER_NAME || 'knowledge-bot').trim();
 const gitUserEmail = (process.env.KB_VAULT_GIT_USER_EMAIL || 'knowledge-bot@example.local').trim();
+const gitPushUsername = (process.env.KB_VAULT_GIT_PUSH_USERNAME || '').trim();
+const gitPushToken = (process.env.KB_VAULT_GIT_PUSH_TOKEN || '').trim();
 const saoPauloFormatter = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'America/Sao_Paulo',
   year: 'numeric',
@@ -316,9 +321,14 @@ async function ensureDir(targetPath) {
   await fs.mkdir(targetPath, { recursive: true });
 }
 
-async function runGit(args, { allowFailure = false } = {}) {
+async function runGit(args, { allowFailure = false, gitConfigs = [] } = {}) {
   try {
-    const result = await execFile('git', ['-c', `safe.directory=${vaultPath}`, '-C', vaultPath, ...args], {
+    const configArgs = [
+      '-c',
+      `safe.directory=${vaultPath}`,
+      ...gitConfigs.flatMap((entry) => ['-c', entry]),
+    ];
+    const result = await execFile('git', [...configArgs, '-C', vaultPath, ...args], {
       cwd: vaultPath,
       maxBuffer: 20 * 1024 * 1024,
     });
@@ -338,6 +348,17 @@ async function runGit(args, { allowFailure = false } = {}) {
       code: error.code ?? null,
     };
   }
+}
+
+function buildPushGitConfigs(remoteUrl) {
+  if (!remoteUrl || !/^https:\/\//i.test(remoteUrl)) {
+    return [];
+  }
+  if (!gitPushUsername || !gitPushToken) {
+    return [];
+  }
+  const auth = Buffer.from(`${gitPushUsername}:${gitPushToken}`, 'utf8').toString('base64');
+  return [`http.extraheader=AUTHORIZATION: Basic ${auth}`];
 }
 
 async function ensureVaultRepository() {
@@ -460,11 +481,7 @@ function buildFallbackAnalysis(event) {
   };
 }
 
-async function buildAiAnalysis(event) {
-  if (!analysisApiKey || !analysisModel) {
-    return buildFallbackAnalysis(event);
-  }
-
+function buildPromptPayload(event) {
   const files = (event.files || []).slice(0, 80).map((entry) => `${entry.status || 'M'} ${entry.path}`);
   const commits = (event.commits || []).map((entry) => ({
     sha: shortSha(entry.id),
@@ -491,15 +508,26 @@ async function buildAiAnalysis(event) {
           files,
           commits,
         };
+}
 
+function parseJsonText(content) {
+  const raw = String(content || '').trim();
+  if (!raw) {
+    return {};
+  }
+  const cleaned = raw.replace(/^```json\s*/i, '').replace(/^```/i, '').replace(/```$/i, '').trim();
+  return JSON.parse(cleaned || '{}');
+}
+
+async function buildOpenAiAnalysis(event, promptPayload) {
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      authorization: `Bearer ${analysisApiKey}`,
+      authorization: `Bearer ${openaiApiKey}`,
     },
     body: JSON.stringify({
-      model: analysisModel,
+      model: openaiModel,
       temperature: 0.2,
       response_format: { type: 'json_object' },
       messages: [
@@ -522,13 +550,104 @@ async function buildAiAnalysis(event) {
 
   const data = await response.json();
   const content = data?.choices?.[0]?.message?.content;
-  const parsed = JSON.parse(String(content || '{}'));
+  const parsed = parseJsonText(content);
   return {
     source: 'openai',
-    summary: trimParagraph(parsed.summary, buildFallbackAnalysis(event).summary),
-    impact: trimParagraph(parsed.impact, buildFallbackAnalysis(event).impact),
-    risks: trimParagraph(parsed.risks, buildFallbackAnalysis(event).risks),
-    nextSteps: trimParagraph(parsed.next_steps || parsed.nextSteps, buildFallbackAnalysis(event).nextSteps),
+    summary: parsed.summary,
+    impact: parsed.impact,
+    risks: parsed.risks,
+    nextSteps: parsed.next_steps || parsed.nextSteps,
+  };
+}
+
+async function buildGeminiAnalysis(event, promptPayload) {
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`,
+    {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        generationConfig: {
+          temperature: 0.2,
+          responseMimeType: 'application/json',
+        },
+        contents: [
+          {
+            parts: [
+              {
+                text: [
+                  'You produce concise engineering memory notes in Brazilian Portuguese.',
+                  'Respond with strict JSON containing summary, impact, risks, next_steps.',
+                  JSON.stringify(promptPayload),
+                ].join('\n'),
+              },
+            ],
+          },
+        ],
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(`gemini_http_${response.status}`);
+  }
+
+  const data = await response.json();
+  const content = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  const parsed = parseJsonText(content);
+  return {
+    source: 'gemini',
+    summary: parsed.summary,
+    impact: parsed.impact,
+    risks: parsed.risks,
+    nextSteps: parsed.next_steps || parsed.nextSteps,
+  };
+}
+
+function resolveAiProvider() {
+  if (aiProvider === 'auto') {
+    if (openaiApiKey && openaiModel) {
+      return 'openai';
+    }
+    if (geminiApiKey && geminiModel) {
+      return 'gemini';
+    }
+    return 'none';
+  }
+  return aiProvider;
+}
+
+async function buildAiAnalysis(event) {
+  const provider = resolveAiProvider();
+  if (provider === 'none') {
+    return buildFallbackAnalysis(event);
+  }
+
+  const promptPayload = buildPromptPayload(event);
+  const base = buildFallbackAnalysis(event);
+  let result;
+  if (provider === 'openai') {
+    if (!openaiApiKey || !openaiModel) {
+      return base;
+    }
+    result = await buildOpenAiAnalysis(event, promptPayload);
+  } else if (provider === 'gemini') {
+    if (!geminiApiKey || !geminiModel) {
+      return base;
+    }
+    result = await buildGeminiAnalysis(event, promptPayload);
+  } else {
+    return base;
+  }
+
+  return {
+    source: result.source || provider,
+    summary: trimParagraph(result.summary, base.summary),
+    impact: trimParagraph(result.impact, base.impact),
+    risks: trimParagraph(result.risks, base.risks),
+    nextSteps: trimParagraph(result.nextSteps, base.nextSteps),
   };
 }
 
@@ -794,9 +913,17 @@ async function persistEvent(project, payload, analysis) {
   if (enableGitPush) {
     const remoteResult = await runGit(['remote'], { allowFailure: true });
     if (String(remoteResult.stdout || '').split(/\r?\n/).includes('origin')) {
-      const pushResult = await runGit(['push', 'origin', 'HEAD'], { allowFailure: true });
-      pushed = pushResult.ok;
-      pushMessage = pushResult.ok ? 'pushed' : pushResult.stderr || 'push_failed';
+      const pushGitConfigs = buildPushGitConfigs(vaultRemoteUrl);
+      if (/^https:\/\//i.test(vaultRemoteUrl) && pushGitConfigs.length === 0) {
+        pushMessage = 'missing_push_credentials';
+      } else {
+        const pushResult = await runGit(['push', 'origin', 'HEAD'], {
+          allowFailure: true,
+          gitConfigs: pushGitConfigs,
+        });
+        pushed = pushResult.ok;
+        pushMessage = pushResult.ok ? 'pushed' : pushResult.stderr || 'push_failed';
+      }
     } else {
       pushMessage = 'remote_missing';
     }
