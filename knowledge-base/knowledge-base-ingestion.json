@@ -1,0 +1,208 @@
+[
+  {
+    "id": "gH8xKbIngest0001",
+    "name": "Knowledge Base - Ingestion",
+    "active": true,
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "kb-event",
+          "responseMode": "responseNode",
+          "options": {
+            "rawBody": true
+          }
+        },
+        "id": "c0ec733f-a36a-4974-b759-872fd8e21650",
+        "name": "Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          0,
+          160
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const inputItem = $input.all()[0] || {};\nconst body = $json.body && typeof $json.body === 'object' ? $json.body : $json;\nconst headers = $json.headers && typeof $json.headers === 'object' ? $json.headers : {};\nconst rawBodyB64 = inputItem.binary?.data?.data || $binary?.data?.data || '';\nconst payload = {\n  headers,\n  body,\n  raw_body_b64: rawBodyB64,\n  received_at: new Date().toISOString(),\n};\nreturn [{\n  json: {\n    payload_b64: Buffer.from(JSON.stringify(payload)).toString('base64'),\n    incoming_body: body,\n  },\n}];"
+        },
+        "id": "fc811629-c804-48d4-b5d8-b63786a0d6aa",
+        "name": "Prepare Payload",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          256,
+          160
+        ]
+      },
+      {
+        "parameters": {
+          "command": "=node /home/node/knowledge-base/process-event-v2.mjs '{{$json.payload_b64}}'"
+        },
+        "id": "4af87b4c-7f14-4556-9b9f-c77ffbd3c75c",
+        "name": "Run Processor",
+        "type": "n8n-nodes-base.executeCommand",
+        "typeVersion": 1,
+        "position": [
+          512,
+          160
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const stdout = String($json.stdout || '').trim();\nlet parsed;\ntry {\n  parsed = JSON.parse(stdout || '{}');\n} catch {\n  parsed = {\n    ok: false,\n    status: 'invalid_processor_output',\n    message: stdout || 'processor returned no json',\n  };\n}\nreturn [{ json: parsed }];"
+        },
+        "id": "181f2e58-240f-49fc-b09e-55fa3159d66a",
+        "name": "Parse Result",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          768,
+          160
+        ]
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json }}",
+          "options": {
+            "responseCode": 200
+          }
+        },
+        "id": "1ba3b7ec-4c14-478c-b732-9b553511e1a7",
+        "name": "Respond to Webhook",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.1,
+        "position": [
+          1024,
+          64
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "1d9f70c0-3145-4064-9ffb-cf89f1efaf01",
+                "leftValue": "={{ String($json.ok) }}",
+                "rightValue": "false",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals",
+                  "name": "filter.operator.equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "5f0613aa-dd3f-45b7-8d0b-8eca57597ffd",
+        "name": "Needs Alert?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          1024,
+          256
+        ]
+      },
+      {
+        "parameters": {
+          "chatId": "={{ $env.VPS_TELEGRAM_CHAT_ID }}",
+          "text": "={{ $json.alertMessage || $json.message || 'Knowledge base ingestion failed' }}",
+          "additionalFields": {
+            "appendAttribution": false
+          }
+        },
+        "id": "8eef5a2f-b040-45a9-9355-4799c61d599f",
+        "name": "Telegram Failure Alert",
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          1280,
+          208
+        ],
+        "credentials": {
+          "telegramApi": {
+            "id": "tgCredVps2400001",
+            "name": "Telegram VPS"
+          }
+        }
+      }
+    ],
+    "connections": {
+      "Webhook": {
+        "main": [
+          [
+            {
+              "node": "Prepare Payload",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Prepare Payload": {
+        "main": [
+          [
+            {
+              "node": "Run Processor",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Run Processor": {
+        "main": [
+          [
+            {
+              "node": "Parse Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parse Result": {
+        "main": [
+          [
+            {
+              "node": "Respond to Webhook",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Needs Alert?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Needs Alert?": {
+        "main": [
+          [
+            {
+              "node": "Telegram Failure Alert",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1",
+      "binaryMode": "separate"
+    },
+    "pinData": {},
+    "versionId": "e95aa740-7a34-4f4e-b3ef-fdf9ce2ec001"
+  }
+]

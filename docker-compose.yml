@@ -16,10 +16,14 @@ services:
       N8N_PATH: ${N8N_PATH:-/n8n/}
       N8N_EDITOR_BASE_URL: ${N8N_EDITOR_BASE_URL}
       WEBHOOK_URL: ${WEBHOOK_URL}
+      N8N_PROXY_HOPS: ${N8N_PROXY_HOPS:-1}
       GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-America/Sao_Paulo}
       N8N_BASIC_AUTH_ACTIVE: ${N8N_BASIC_AUTH_ACTIVE:-true}
       N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER}
       N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD}
+      NODES_EXCLUDE: ${NODES_EXCLUDE:-[]}
 
     volumes:
-      - ./data:/home/node/.n8n
+      - ${N8N_DATA_DIR:-../n8n-private/data}:/home/node/.n8n
+      - ./knowledge-base:/home/node/knowledge-base:ro
+      - ../knowledge-vault:/home/node/knowledge-vault
