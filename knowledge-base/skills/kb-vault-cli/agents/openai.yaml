@@ -1,4 +1,4 @@
 interface:
   display_name: "KB Vault CLI"
   short_description: "Gerar e executar comandos fixos para notas no vault"
-  default_prompt: "Classifique o pedido e execute o comando kb-note/kb-bug/kb-resume/kb-article completo com flags de projeto, pasta e nome de arquivo."
+  default_prompt: "Classifique o pedido e execute kb-note com as flags suportadas. Sempre envie via webhook remoto (VPS, KB_WEBHOOK_URL), valide configuração antes do primeiro envio e nunca faça fallback para escrita local de notas."
