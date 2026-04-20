@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_NAME="$(basename "$0")"
 CONFIG_FILE="${KB_NOTE_CONFIG_FILE:-$HOME/.config/kb-note/config.env}"
 
 if [[ -f "$CONFIG_FILE" ]]; then
@@ -8,26 +9,310 @@ if [[ -f "$CONFIG_FILE" ]]; then
   source "$CONFIG_FILE"
 fi
 
-KB_NOTE_URL="${KB_NOTE_URL:-${KB_AGENT_URL:-}}"
-KB_NOTE_SECRET="${KB_NOTE_SECRET:-${KB_AGENT_SECRET:-}}"
-usage() {
-  cat <<'EOF'
-Usage:
-  kb-note [--file <path>] [text]
+detect_vault_dir() {
+  local configured="${KB_VAULT_DIR:-}"
+  if [[ -n "$configured" && -d "$configured" && -w "$configured" ]]; then
+    printf '%s' "$configured"
+    return 0
+  fi
 
-Examples:
-  kb-note "salve um resumo do erro do webhook na pasta bugs"
-  kb-note --file /tmp/note.txt
-EOF
+  if [[ -d "/home/ubuntu/knowledge-vault" && -w "/home/ubuntu/knowledge-vault" ]]; then
+    printf '%s' "/home/ubuntu/knowledge-vault"
+    return 0
+  fi
+
+  if [[ -d "/home/node/knowledge-vault" && -w "/home/node/knowledge-vault" ]]; then
+    printf '%s' "/home/node/knowledge-vault"
+    return 0
+  fi
+
+  return 1
 }
 
+slugify() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9-]+/-/g; s/^-+//; s/-+$//; s/-+/-/g'
+}
+
+slugify_filename() {
+  local base
+  base="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g; s/^-+//; s/-+$//; s/-+/-/g')"
+  if [[ -z "$base" ]]; then
+    base="note"
+  fi
+  if [[ "$base" != *.md ]]; then
+    base="${base}.md"
+  fi
+  printf '%s' "$base"
+}
+
+join_csv_tags_as_yaml() {
+  local raw="$1"
+  local project="$2"
+  local kind="$3"
+  local normalized=""
+  local item
+
+  normalized+="\"$kind\""
+  if [[ "$project" != "inbox" ]]; then
+    normalized+=", \"$project\""
+  else
+    normalized+=", \"inbox\""
+  fi
+
+  if [[ -n "$raw" ]]; then
+    IFS=',' read -r -a _tags <<<"$raw"
+    for item in "${_tags[@]}"; do
+      item="$(slugify "$item")"
+      [[ -z "$item" ]] && continue
+      normalized+=", \"$item\""
+    done
+  fi
+
+  printf '[%s]' "$normalized"
+}
+
+build_default_folder() {
+  local kind="$1"
+  local project="$2"
+
+  if [[ "$project" == "inbox" ]]; then
+    printf '%s' "inbox"
+    return 0
+  fi
+
+  case "$kind" in
+    bug)
+      printf '%s' "projects/$project/bugs"
+      ;;
+    resume)
+      printf '%s' "projects/$project/docs/resumes"
+      ;;
+    article)
+      printf '%s' "projects/$project/docs/articles"
+      ;;
+    manual_note)
+      printf '%s' "projects/$project/docs/manual-notes"
+      ;;
+    postmortem)
+      printf '%s' "projects/$project/postmortems"
+      ;;
+    daily)
+      printf '%s' "projects/$project/daily"
+      ;;
+    *)
+      printf '%s' "projects/$project/docs/manual-notes"
+      ;;
+  esac
+}
+
+build_markdown() {
+  local kind="$1"
+  local title="$2"
+  local project="$3"
+  local source_kind="$4"
+  local status="$5"
+  local severity="$6"
+  local source_file="$7"
+  local tags_yaml="$8"
+  local event_at="$9"
+  local body_text="${10}"
+
+  local id
+  id="$kind:$(date -u +%Y%m%d%H%M%S)"
+
+  {
+    echo '---'
+    printf 'id: "%s"\n' "$id"
+    printf 'type: "%s"\n' "$kind"
+    printf 'project: "%s"\n' "$project"
+    printf 'source_kind: "%s"\n' "$source_kind"
+    printf 'status: "%s"\n' "$status"
+    printf 'event_at: "%s"\n' "$event_at"
+    printf 'tags: %s\n' "$tags_yaml"
+    if [[ -n "$severity" ]]; then
+      printf 'severity: "%s"\n' "$severity"
+    fi
+    if [[ "$kind" == "bug" || "$kind" == "postmortem" ]]; then
+      printf 'opened_at: "%s"\n' "$event_at"
+      if [[ "$status" == "closed" ]]; then
+        printf 'closed_at: "%s"\n' "$event_at"
+      fi
+    fi
+    if [[ "$kind" == "resume" && -n "$source_file" ]]; then
+      printf 'source_file: "%s"\n' "$source_file"
+    fi
+    echo '---'
+    echo
+    printf '# %s\n\n' "$title"
+
+    case "$kind" in
+      bug)
+        echo '## Context'
+        echo "$body_text"
+        echo
+        echo '## Impact'
+        echo
+        echo '## Reproduction'
+        echo '1.'
+        echo '2.'
+        echo '3.'
+        echo
+        echo '## Expected Behavior'
+        echo
+        echo '## Current Behavior'
+        echo
+        echo '## Next Steps'
+        ;;
+      resume)
+        echo '## Executive Summary'
+        echo "$body_text"
+        echo
+        echo '## Key Points'
+        echo
+        echo '## Risks and Limitations'
+        echo
+        echo '## Actions'
+        ;;
+      article)
+        echo '## Context'
+        echo "$body_text"
+        echo
+        echo '## Main Content'
+        echo
+        echo '## References'
+        echo
+        echo '## Next Steps'
+        ;;
+      postmortem)
+        echo '## Executive Summary'
+        echo "$body_text"
+        echo
+        echo '## Timeline'
+        echo
+        echo '## Root Cause'
+        echo
+        echo '## Corrective Actions'
+        echo
+        echo '## Preventive Actions'
+        ;;
+      daily)
+        echo '## Summary'
+        echo "$body_text"
+        echo
+        echo '## Changes'
+        echo
+        echo '## Risks'
+        echo
+        echo '## Next Steps'
+        ;;
+      *)
+        echo '## Context'
+        echo "$body_text"
+        echo
+        echo '## Notes'
+        ;;
+    esac
+  }
+}
+
+usage() {
+  cat <<'USAGE_EOF'
+Usage:
+  kb-note --kind <bug|resume|article|manual_note|postmortem|daily> --project <slug> [options] [text]
+  kb-bug <project-slug> [text] [--name arquivo.md] [--folder relative/path]
+  kb-resume <project-slug> [text] [--name arquivo.md] [--folder relative/path]
+  kb-article <project-slug> [text] [--name arquivo.md] [--folder relative/path]
+
+Options:
+  --kind <type>          Note type.
+  --project <slug>       Project slug. Use inbox for global notes.
+  --title <title>        Note title.
+  --name <file.md>       Explicit file name (kebab-case recommended).
+  --folder <path>        Custom relative folder. If it does not start with projects/ or inbox,
+                         it is appended under projects/<slug>/.
+  --status <value>       Status (default: bug=open, postmortem=closed, others=active).
+  --source-kind <value>  Source kind (default: manual).
+  --severity <value>     Severity for bug/postmortem.
+  --source-file <path>   Source file metadata (useful for resume).
+  --tags a,b,c           Extra tags (comma separated).
+  --file <path>          Read body text from file.
+  -h, --help             Show this help.
+
+Env:
+  KB_VAULT_DIR           Vault root (default auto-detect).
+USAGE_EOF
+}
+
+DEFAULT_KIND=""
+case "$SCRIPT_NAME" in
+  kb-bug)
+    DEFAULT_KIND="bug"
+    ;;
+  kb-resume)
+    DEFAULT_KIND="resume"
+    ;;
+  kb-article)
+    DEFAULT_KIND="article"
+    ;;
+esac
+
 FILE_PATH=""
+KIND="$DEFAULT_KIND"
+PROJECT_SLUG=""
+TITLE=""
+FILE_NAME=""
+CUSTOM_FOLDER=""
+STATUS=""
+SOURCE_KIND="manual"
+SEVERITY=""
+SOURCE_FILE=""
+TAGS=""
 POSITIONAL=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --file)
       FILE_PATH="${2:-}"
+      shift 2
+      ;;
+    --kind)
+      KIND="${2:-}"
+      shift 2
+      ;;
+    --project)
+      PROJECT_SLUG="${2:-}"
+      shift 2
+      ;;
+    --title)
+      TITLE="${2:-}"
+      shift 2
+      ;;
+    --name)
+      FILE_NAME="${2:-}"
+      shift 2
+      ;;
+    --folder)
+      CUSTOM_FOLDER="${2:-}"
+      shift 2
+      ;;
+    --status)
+      STATUS="${2:-}"
+      shift 2
+      ;;
+    --source-kind)
+      SOURCE_KIND="${2:-}"
+      shift 2
+      ;;
+    --severity)
+      SEVERITY="${2:-}"
+      shift 2
+      ;;
+    --source-file)
+      SOURCE_FILE="${2:-}"
+      shift 2
+      ;;
+    --tags)
+      TAGS="${2:-}"
       shift 2
       ;;
     -h|--help)
@@ -41,43 +326,141 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-TEXT_INPUT="${POSITIONAL[*]:-}"
-if [[ -n "$FILE_PATH" ]]; then
-  TEXT_INPUT="$(cat "$FILE_PATH")"
+if [[ -z "$KIND" ]]; then
+  echo "kb-note: --kind is required" >&2
+  exit 1
 fi
 
-if [[ -z "$TEXT_INPUT" ]]; then
+case "$KIND" in
+  bug|resume|article|manual_note|postmortem|daily)
+    ;;
+  *)
+    echo "kb-note: invalid --kind '$KIND'" >&2
+    exit 1
+    ;;
+esac
+
+if [[ -z "$PROJECT_SLUG" && ${#POSITIONAL[@]} -gt 0 ]]; then
+  PROJECT_SLUG="${POSITIONAL[0]}"
+  POSITIONAL=("${POSITIONAL[@]:1}")
+fi
+
+PROJECT_SLUG="$(slugify "${PROJECT_SLUG:-}")"
+if [[ -z "$PROJECT_SLUG" ]]; then
+  PROJECT_SLUG="inbox"
+fi
+
+BODY_TEXT=""
+if [[ -n "$FILE_PATH" ]]; then
+  BODY_TEXT="$(cat "$FILE_PATH")"
+else
+  BODY_TEXT="${POSITIONAL[*]:-}"
+fi
+
+if [[ -z "${BODY_TEXT// }" ]]; then
   TMP_FILE="$(mktemp)"
   trap 'rm -f "$TMP_FILE"' EXIT
   "${EDITOR:-nano}" "$TMP_FILE"
-  TEXT_INPUT="$(cat "$TMP_FILE")"
+  BODY_TEXT="$(cat "$TMP_FILE")"
 fi
 
-if [[ -z "${TEXT_INPUT// }" ]]; then
+if [[ -z "${BODY_TEXT// }" ]]; then
   echo "kb-note: empty note" >&2
   exit 1
 fi
 
-if [[ -z "$KB_NOTE_SECRET" ]]; then
-  echo "kb-note: KB_NOTE_SECRET is not configured" >&2
+VAULT_DIR="$(detect_vault_dir || true)"
+if [[ -z "$VAULT_DIR" ]]; then
+  echo "kb-note: unable to find KB_VAULT_DIR (set KB_VAULT_DIR in config/env)" >&2
   exit 1
 fi
 
-if [[ -z "$KB_NOTE_URL" ]]; then
-  echo "kb-note: KB_NOTE_URL is not configured" >&2
-  exit 1
+if [[ -z "$STATUS" ]]; then
+  case "$KIND" in
+    bug)
+      STATUS="open"
+      ;;
+    postmortem)
+      STATUS="closed"
+      ;;
+    *)
+      STATUS="active"
+      ;;
+  esac
 fi
 
-PAYLOAD="$(python3 - "$TEXT_INPUT" <<'PY'
-import json, sys
-prompt = sys.argv[1]
-payload = {"prompt": prompt}
-print(json.dumps(payload, ensure_ascii=True))
-PY
-)"
+EVENT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-curl --silent --show-error --fail \
-  -X POST "$KB_NOTE_URL" \
-  -H 'content-type: application/json' \
-  -H "x-kb-secret: $KB_NOTE_SECRET" \
-  --data "$PAYLOAD"
+if [[ -z "$TITLE" ]]; then
+  case "$KIND" in
+    bug)
+      TITLE="Bug - ${BODY_TEXT:0:60}"
+      ;;
+    resume)
+      TITLE="Resumo - ${BODY_TEXT:0:60}"
+      ;;
+    article)
+      TITLE="Article - ${BODY_TEXT:0:60}"
+      ;;
+    manual_note)
+      TITLE="Manual Note - ${BODY_TEXT:0:60}"
+      ;;
+    postmortem)
+      TITLE="Postmortem - ${BODY_TEXT:0:60}"
+      ;;
+    daily)
+      TITLE="Daily - $(date -u +%Y-%m-%d)"
+      ;;
+    *)
+      TITLE="Note - ${BODY_TEXT:0:60}"
+      ;;
+  esac
+fi
+
+TITLE="$(printf '%s' "$TITLE" | tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//')"
+
+if [[ -z "$FILE_NAME" ]]; then
+  FILE_NAME="$(slugify_filename "$(printf '%s' "$TITLE" | cut -c1-80)")"
+else
+  FILE_NAME="$(slugify_filename "$FILE_NAME")"
+fi
+
+if [[ -n "$CUSTOM_FOLDER" ]]; then
+  CUSTOM_FOLDER="${CUSTOM_FOLDER#./}"
+  CUSTOM_FOLDER="${CUSTOM_FOLDER#/}"
+  if [[ "$CUSTOM_FOLDER" == *".."* ]]; then
+    echo "kb-note: invalid --folder (path traversal)" >&2
+    exit 1
+  fi
+
+  if [[ "$CUSTOM_FOLDER" == projects/* || "$CUSTOM_FOLDER" == inbox* ]]; then
+    RELATIVE_FOLDER="$CUSTOM_FOLDER"
+  elif [[ "$PROJECT_SLUG" == "inbox" ]]; then
+    RELATIVE_FOLDER="inbox/$CUSTOM_FOLDER"
+  else
+    RELATIVE_FOLDER="projects/$PROJECT_SLUG/$CUSTOM_FOLDER"
+  fi
+else
+  RELATIVE_FOLDER="$(build_default_folder "$KIND" "$PROJECT_SLUG")"
+fi
+
+TARGET_DIR="$VAULT_DIR/$RELATIVE_FOLDER"
+mkdir -p "$TARGET_DIR"
+
+TARGET_FILE="$TARGET_DIR/$FILE_NAME"
+if [[ -f "$TARGET_FILE" ]]; then
+  base_name="${FILE_NAME%.md}"
+  TARGET_FILE="$TARGET_DIR/${base_name}-$(date -u +%H%M%S).md"
+fi
+
+TAGS_YAML="$(join_csv_tags_as_yaml "$TAGS" "$PROJECT_SLUG" "$KIND")"
+
+CONTENT="$(build_markdown "$KIND" "$TITLE" "$PROJECT_SLUG" "$SOURCE_KIND" "$STATUS" "$SEVERITY" "$SOURCE_FILE" "$TAGS_YAML" "$EVENT_AT" "$BODY_TEXT")"
+printf '%s\n' "$CONTENT" > "$TARGET_FILE"
+
+RELATIVE_PATH="${TARGET_FILE#"$VAULT_DIR"/}"
+printf 'ok: true\n'
+printf 'vault: %s\n' "$VAULT_DIR"
+printf 'path: %s\n' "$RELATIVE_PATH"
+printf 'kind: %s\n' "$KIND"
+printf 'project: %s\n' "$PROJECT_SLUG"

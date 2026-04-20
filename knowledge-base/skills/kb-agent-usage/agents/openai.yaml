@@ -1,4 +1,0 @@
-interface:
-  display_name: "KB Agent Usage"
-  short_description: "Usar kb-agent com estrutura fixa do vault"
-  default_prompt: "Classifique a solicitacao, escolha o tipo de nota e salve no vault com frontmatter padrao via kb-agent."
