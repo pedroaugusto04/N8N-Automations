@@ -3,7 +3,7 @@
     "id": "gH8xKbIngest0001",
     "name": "Knowledge Base - Ingestion",
     "active": true,
-    "nodes": [ 
+    "nodes": [  
       {
         "parameters": {
           "httpMethod": "POST",
