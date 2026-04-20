@@ -11,17 +11,17 @@ fi
 
 detect_vault_dir() {
   local configured="${KB_VAULT_DIR:-}"
-  if [[ -n "$configured" && -d "$configured" && -w "$configured" ]]; then
+  if [[ -n "$configured" && -d "$configured" ]]; then
     printf '%s' "$configured"
     return 0
   fi
 
-  if [[ -d "/home/ubuntu/knowledge-vault" && -w "/home/ubuntu/knowledge-vault" ]]; then
+  if [[ -d "/home/ubuntu/knowledge-vault" ]]; then
     printf '%s' "/home/ubuntu/knowledge-vault"
     return 0
   fi
 
-  if [[ -d "/home/node/knowledge-vault" && -w "/home/node/knowledge-vault" ]]; then
+  if [[ -d "/home/node/knowledge-vault" ]]; then
     printf '%s' "/home/node/knowledge-vault"
     return 0
   fi
@@ -372,6 +372,10 @@ fi
 VAULT_DIR="$(detect_vault_dir || true)"
 if [[ -z "$VAULT_DIR" ]]; then
   echo "kb-note: unable to find KB_VAULT_DIR (set KB_VAULT_DIR in config/env)" >&2
+  exit 1
+fi
+if [[ ! -w "$VAULT_DIR" ]]; then
+  echo "kb-note: permission denied on KB_VAULT_DIR=$VAULT_DIR for user $(id -un)" >&2
   exit 1
 fi
 

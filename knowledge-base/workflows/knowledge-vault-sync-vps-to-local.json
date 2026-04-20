@@ -1,0 +1,73 @@
+[
+  {
+    "id": "kvSyncVpsLocal01",
+    "name": "Knowledge Vault - VPS to Local Sync",
+    "description": "A cada 5 minutos, comita e envia para o GitHub as alteracoes do knowledge-vault na VPS. A maquina local sincroniza via git pull periodico.",
+    "active": true,
+    "isArchived": false,
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "cronExpression",
+                "expression": "*/5 * * * *"
+              }
+            ]
+          }
+        },
+        "name": "Every 5 Minutes",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          -420,
+          260
+        ],
+        "id": "fce8e2eb-f8bb-4d13-abeb-8b4a97d6c035"
+      },
+      {
+        "parameters": {
+          "command": "/home/node/knowledge-base/scripts/knowledge-vault-git-push.sh"
+        },
+        "name": "Git Commit and Push",
+        "type": "n8n-nodes-base.executeCommand",
+        "typeVersion": 1,
+        "position": [
+          -100,
+          260
+        ],
+        "id": "178ef7da-94b2-4eb4-a4c8-1334b2223aa6"
+      }
+    ],
+    "connections": {
+      "Every 5 Minutes": {
+        "main": [
+          [
+            {
+              "node": "Git Commit and Push",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1"
+    },
+    "staticData": {
+      "node:Every 5 Minutes": {
+        "recurrenceRules": []
+      }
+    },
+    "meta": {
+      "templateCredsSetupCompleted": true
+    },
+    "pinData": {},
+    "versionId": "5d8ec2cc-65f4-4cb8-a3b3-2754744d5818",
+    "versionCounter": 1,
+    "triggerCount": 1,
+    "tags": []
+  }
+]

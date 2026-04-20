@@ -1,44 +1,43 @@
 ---
 name: kb-vault-cli
-description: Use when the user asks in natural language to create or update knowledge-vault notes via the installed kb CLI. Prefer real command capabilities discovered at runtime (currently kb-note with --project/--title/--file + text), and keep folder paths root-relative (never /home/...).
+description: Use quando o usuario pedir para criar/atualizar notas no Knowledge Vault por linguagem natural. Executa kb-note/kb-bug/kb-resume/kb-article com flags reais suportadas localmente.
 ---
 
 # KB Vault CLI
 
 ## Runtime-First Command Policy
 
-1. Validate available commands before acting:
-- Run `which kb-note kb-bug kb-resume kb-article`.
-- If only `kb-note` exists, use only `kb-note`.
-- Never invent unsupported flags.
+1. Valide os comandos instalados antes de agir:
+- `which kb-note kb-bug kb-resume kb-article`
+- Se wrappers nao existirem, use somente `kb-note`.
 
-2. Current known interface (from local binary):
-- `kb-note [--project <slug>] [--title <text>] [--file <path>] [text]`
-- Supported flags are `--project`, `--title`, `--file`.
-- `kb-note` sends payload to webhook (VPS destination via `KB_WEBHOOK_URL`); file placement/routing is handled downstream, not by local `--folder` flags.
+2. Interface atual suportada:
+- `kb-note --kind <bug|resume|article|manual_note|postmortem|daily> --project <slug> [opcoes] [text]`
+- Wrappers:
+- `kb-bug <project> [text]`
+- `kb-resume <project> [text]`
+- `kb-article <project> [text]`
 
-3. Mapping requests to `kb-note`:
-- Free text note: put content in `[text]`.
-- Titled note: add `--title`.
-- Project note: add `--project`.
-- Attachment request: add `--file`.
+3. Flags validas do `kb-note`:
+- `--project`, `--kind`, `--title`, `--name`, `--folder`, `--status`, `--source-kind`, `--severity`, `--source-file`, `--tags`, `--file`
+- Nunca inventar flags fora dessa lista.
 
-## VPS Delivery Rules (Mandatory)
+## Mapping de Intencao -> Comando
 
-- Always deliver notes through `kb-note` webhook flow. Do not create/edit local vault note files as a fallback.
-- Before first send in a session, validate webhook configuration from `~/.config/kb-note/config.env` (or `KB_NOTE_CONFIG_FILE`) and confirm `KB_WEBHOOK_URL` is set.
-- Consider delivery successful only when command output includes `kb-note: ok (HTTP 200)`.
-- If delivery fails, report the remote error and retry once if failure looks transient. Never silently downgrade to local-only write.
+- Bug report: preferir `kb-bug <project> <texto>`.
+- Resumo de conteudo: preferir `kb-resume <project> <texto>`.
+- Artigo/guia: preferir `kb-article <project> <texto>`.
+- Casos avancados (daily, postmortem, nome/metadata custom): usar `kb-note` com flags explicitas.
 
-## Path Rules (Strict)
+## Regras de Path
 
-- Use root-relative logical folders in communication, for example: `CompetitiveProgramming/`.
-- Never use absolute host paths like `/home/pedroduarte/...` when describing target folders.
-- If user supplies an absolute source file path, it can be used for `--file` input only.
-- When creating local folders/files outside kb-note workflow, create them as relative paths from workspace root whenever possible (for example `CompetitiveProgramming/`).
+- `--folder` sempre relativo ao vault, sem path absoluto.
+- Nunca usar `/home/...` em `--folder`.
+- Rejeitar `--folder` com `..` (path traversal).
+- `--file` pode receber caminho absoluto apenas como arquivo de entrada.
 
-## Execution Style
+## Execucao
 
-- Prefer executing commands directly instead of only suggesting them.
-- Report what command was run and the effective destination/logical folder (webhook/VPS path handled downstream).
-- If CLI capabilities conflict with requested metadata, state limitation clearly and apply the closest valid command.
+- Execute o comando diretamente sempre que possivel.
+- Retorne o comando executado e o caminho final gerado pelo CLI.
+- Se o pedido do usuario conflitar com as capacidades atuais, explique a limitacao e aplique o comando valido mais proximo.
