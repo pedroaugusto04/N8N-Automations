@@ -71,6 +71,48 @@ kb-note --kind daily --project n8n-automations --folder daily --name 2026-04-20.
 ## Codex Skill
 
 Repository skill for natural language to deterministic command execution:
-- `skills/kb-vault-cli/SKILL.md`
+- `knowledge-base/skills/kb-vault-cli/SKILL.md`
 
 The skill is intended to classify requests and execute the complete command (`kb-note`/`kb-bug`/`kb-resume`/`kb-article`) with explicit flags.
+
+### Tutorial (usuario) - cadastrar no Codex
+
+The Codex runtime loads custom skills from your local Codex skills directory. On this VPS, use:
+
+```bash
+mkdir -p ~/.codex/skills/kb-vault-cli
+cp /home/ubuntu/n8n/knowledge-base/skills/kb-vault-cli/SKILL.md ~/.codex/skills/kb-vault-cli/SKILL.md
+```
+
+Optional (if you also want local agent metadata alongside the skill):
+
+```bash
+mkdir -p ~/.codex/skills/kb-vault-cli/agents
+cp /home/ubuntu/n8n/knowledge-base/skills/kb-vault-cli/agents/openai.yaml ~/.codex/skills/kb-vault-cli/agents/openai.yaml
+```
+
+After this, start a new Codex session (or restart the current one) so the skill list is reloaded.
+
+### Tutorial (usuario) - uso simples na pratica
+
+To force usage of this skill, start your request with `$kb-vault-cli` and describe only the intent in natural language.
+Codex should infer type, project, folder, metadata, and execute the correct command for you.
+
+Examples:
+
+```text
+$kb-vault-cli registra um bug do n8n-automations: webhook 401 apos trocar secret
+$kb-vault-cli resumir o pdf /tmp/rag.pdf no projeto n8n-automations
+$kb-vault-cli criar postmortem high severity do incidente de timeout de ontem e marcar como closed
+```
+
+Expected behavior from Codex:
+- Selects `kb-bug`, `kb-resume`, `kb-article`, or `kb-note` automatically.
+- Completes deterministic flags (`--project`, `--kind`, `--folder`, `--severity`, `--status`, etc.).
+- Writes only inside the vault structure and reports the generated file path.
+
+If you prefer, you can still be explicit:
+
+```text
+$kb-vault-cli usa --project n8n-automations --kind daily e cria nota de hoje com os aprendizados do deploy
+```
