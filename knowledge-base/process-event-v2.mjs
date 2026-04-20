@@ -880,6 +880,11 @@ async function persistEvent(project, payload, analysis) {
     ...(Array.isArray(payload.tags) ? payload.tags : []),
     payload.event_type === 'manual_note' ? 'manual-note' : 'github-push',
   ]);
+  const commitsCount = Array.isArray(payload.commits) ? payload.commits.length : 0;
+  const filesChanged = Number(payload?.diffstat?.files_changed) || (Array.isArray(payload.files) ? payload.files.length : 0);
+  const insertions = Number(payload?.diffstat?.insertions) || 0;
+  const deletions = Number(payload?.diffstat?.deletions) || 0;
+  const isManual = payload.event_type === 'manual_note';
   const noteFrontmatter = {
     id: payload.event_id,
     type: payload.event_type === 'manual_note' ? 'manual_note' : 'dev_log',
@@ -890,6 +895,11 @@ async function persistEvent(project, payload, analysis) {
     source: payload.source || 'n8n',
     head_sha: payload.head_sha || '',
     author: payload.source_actor || '',
+    is_manual: isManual,
+    commits_count: commitsCount,
+    files_changed: filesChanged,
+    insertions,
+    deletions,
     tags,
     semantic_text_version: semanticTextVersion,
     analysis_source: analysis.source,
