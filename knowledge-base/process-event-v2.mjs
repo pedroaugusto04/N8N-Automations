@@ -18,11 +18,13 @@ const geminiApiKey = (process.env.KB_GEMINI_API_KEY || process.env.GOOGLE_API_KE
 const webhookSecret = (process.env.KB_WEBHOOK_SECRET || '').trim();
 const githubWebhookSecret = (process.env.KB_GITHUB_APP_WEBHOOK_SECRET || '').trim();
 const enableGitPush = String(process.env.KB_ENABLE_GIT_PUSH || 'false').toLowerCase() === 'true';
+const gitBatchMode = String(process.env.KB_GIT_BATCH_MODE || 'false').toLowerCase() === 'true';
 const vaultRemoteUrl = (process.env.KB_VAULT_REMOTE_URL || '').trim();
 const gitUserName = (process.env.KB_VAULT_GIT_USER_NAME || 'knowledge-bot').trim();
 const gitUserEmail = (process.env.KB_VAULT_GIT_USER_EMAIL || 'knowledge-bot@example.local').trim();
 const gitPushUsername = (process.env.KB_VAULT_GIT_PUSH_USERNAME || '').trim();
 const gitPushToken = (process.env.KB_VAULT_GIT_PUSH_TOKEN || '').trim();
+const ignoredReposEnv = (process.env.KB_IGNORE_REPOS || '').trim();
 const saoPauloFormatter = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'America/Sao_Paulo',
   year: 'numeric',
@@ -36,6 +38,38 @@ const saoPauloTimeFormatter = new Intl.DateTimeFormat('en-GB', {
   second: '2-digit',
   hour12: false,
 });
+
+function parseRepoFullNameFromRemoteUrl(remoteUrl) {
+  const value = String(remoteUrl || '').trim();
+  if (!value) {
+    return '';
+  }
+  const httpsMatch = value.match(/^https?:\/\/github\.com\/([^/]+\/[^/.]+)(?:\.git)?$/i);
+  if (httpsMatch) {
+    return httpsMatch[1].toLowerCase();
+  }
+  const sshMatch = value.match(/^git@github\.com:([^/]+\/[^/.]+)(?:\.git)?$/i);
+  if (sshMatch) {
+    return sshMatch[1].toLowerCase();
+  }
+  return '';
+}
+
+function buildIgnoredReposSet() {
+  const repos = new Set(
+    ignoredReposEnv
+      .split(',')
+      .map((entry) => entry.trim().toLowerCase())
+      .filter(Boolean),
+  );
+  const vaultRepo = parseRepoFullNameFromRemoteUrl(vaultRemoteUrl);
+  if (vaultRepo) {
+    repos.add(vaultRepo);
+  }
+  return repos;
+}
+
+const ignoredRepos = buildIgnoredReposSet();
 
 function slugify(value) {
   return String(value || '')
@@ -240,6 +274,14 @@ function normalizeGithubPushPayload(payload, headers) {
   const repo = String(payload?.repository?.full_name || '').trim();
   if (!repo) {
     throw new Error('github_push_without_repo');
+  }
+  if (ignoredRepos.has(repo.toLowerCase())) {
+    return {
+      ok: true,
+      skipped: true,
+      reason: `ignored_repo:${repo}`,
+      source: 'github_app',
+    };
   }
 
   const branch = String(payload?.ref || '').replace(/^refs\/heads\//, '').trim() || 'main';
@@ -779,11 +821,58 @@ async function upsertDailyNote(project, event, analysis, noteRelativePath, event
       '',
     ].join('\n');
 
-  const entry = [
-    eventMarker,
-    `- ${time} [${event.event_type === 'manual_note' ? 'manual' : `push ${shortSha(event.head_sha)}`}](${path.basename(noteRelativePath)}) - ${analysis.summary}`,
-    '',
-  ].join('\n');
+  let entry = '';
+  if (event.event_type === 'manual_note') {
+    const manualLabel = noteRelativePath ? `[manual](${path.basename(noteRelativePath)})` : 'manual';
+    entry = [
+      eventMarker,
+      `### ${time} ${manualLabel}`,
+      '',
+      '#### Resumo',
+      analysis.summary,
+      '',
+      '#### Observação original',
+      trimParagraph(event.raw_text, 'Sem texto informado.'),
+      '',
+      '#### Contexto',
+      `- branch: ${event.branch || 'n/a'}`,
+      `- head_sha: ${event.head_sha || 'n/a'}`,
+      '',
+    ].join('\n');
+  } else {
+    entry = [
+      eventMarker,
+      `### ${time} push \`${shortSha(event.head_sha)}\``,
+      '',
+      `- branch: ${event.branch || 'n/a'}`,
+      `- author: ${event.source_actor || 'n/a'}`,
+      `- commits: ${Array.isArray(event.commits) ? event.commits.length : 0}`,
+      `- files_changed: ${Number(event?.diffstat?.files_changed) || (Array.isArray(event.files) ? event.files.length : 0)}`,
+      '',
+      '#### Resumo',
+      analysis.summary,
+      '',
+      '#### Impacto',
+      analysis.impact,
+      '',
+      '#### Riscos',
+      analysis.risks,
+      '',
+      '#### Próximos passos',
+      analysis.nextSteps,
+      '',
+      '#### Arquivos alterados',
+      renderFilesSection(event.files),
+      '',
+      '#### Commits',
+      renderCommitsSection(event.commits),
+      '',
+      '#### Links',
+      buildLinksSection(event),
+      '',
+    ].join('\n');
+  }
+
   await ensureDir(path.dirname(dailyPath));
   await fs.writeFile(dailyPath, `${header}${header.endsWith('\n') ? '' : '\n'}${entry}`, 'utf8');
   return dailyPath;
@@ -866,76 +955,79 @@ async function persistEvent(project, payload, analysis) {
             : [],
           commits: Array.isArray(payload.commits) ? payload.commits : [],
         };
-
-  const noteFileName =
-    payload.event_type === 'manual_note'
-      ? `${year}-${month}-${day}-manual-${time}.md`
-      : `${year}-${month}-${day}-push-${shortSha(payload.head_sha)}.md`;
-  const notePath = path.join(vaultPath, project.notes_path, year, month, noteFileName);
-  const noteRelativePath = toRelativeVaultPath(notePath);
-  await ensureDir(path.dirname(notePath));
-
-  const tags = unique([
-    ...(project.default_tags || []),
-    ...(Array.isArray(payload.tags) ? payload.tags : []),
-    payload.event_type === 'manual_note' ? 'manual-note' : 'github-push',
-  ]);
-  const commitsCount = Array.isArray(payload.commits) ? payload.commits.length : 0;
-  const filesChanged = Number(payload?.diffstat?.files_changed) || (Array.isArray(payload.files) ? payload.files.length : 0);
-  const insertions = Number(payload?.diffstat?.insertions) || 0;
-  const deletions = Number(payload?.diffstat?.deletions) || 0;
   const isManual = payload.event_type === 'manual_note';
-  const noteFrontmatter = {
-    id: payload.event_id,
-    type: payload.event_type === 'manual_note' ? 'manual_note' : 'dev_log',
-    project: project.project_slug,
-    repo: payload.repo || project.repo_full_name || '',
-    branch: payload.branch || project.default_branch,
-    event_at: eventDate.toISOString(),
-    source: payload.source || 'n8n',
-    head_sha: payload.head_sha || '',
-    author: payload.source_actor || '',
-    is_manual: isManual,
-    commits_count: commitsCount,
-    files_changed: filesChanged,
-    insertions,
-    deletions,
-    tags,
-    semantic_text_version: semanticTextVersion,
-    analysis_source: analysis.source,
-  };
 
-  const content =
-    payload.event_type === 'manual_note'
-      ? renderManualNote(event, analysis, noteFrontmatter)
-      : renderPushNote(event, analysis, noteFrontmatter);
-  await fs.writeFile(notePath, content, 'utf8');
+  let noteRelativePath = '';
+  if (isManual) {
+    const noteFileName = `${year}-${month}-${day}-manual-${time}.md`;
+    const notePath = path.join(vaultPath, project.notes_path, year, month, noteFileName);
+    noteRelativePath = toRelativeVaultPath(notePath);
+    await ensureDir(path.dirname(notePath));
+
+    const tags = unique([
+      ...(project.default_tags || []),
+      ...(Array.isArray(payload.tags) ? payload.tags : []),
+      'manual-note',
+    ]);
+    const commitsCount = Array.isArray(payload.commits) ? payload.commits.length : 0;
+    const filesChanged = Number(payload?.diffstat?.files_changed) || (Array.isArray(payload.files) ? payload.files.length : 0);
+    const insertions = Number(payload?.diffstat?.insertions) || 0;
+    const deletions = Number(payload?.diffstat?.deletions) || 0;
+    const noteFrontmatter = {
+      id: payload.event_id,
+      type: 'manual_note',
+      project: project.project_slug,
+      repo: payload.repo || project.repo_full_name || '',
+      branch: payload.branch || project.default_branch,
+      event_at: eventDate.toISOString(),
+      source: payload.source || 'n8n',
+      head_sha: payload.head_sha || '',
+      author: payload.source_actor || '',
+      is_manual: true,
+      commits_count: commitsCount,
+      files_changed: filesChanged,
+      insertions,
+      deletions,
+      tags,
+      semantic_text_version: semanticTextVersion,
+      analysis_source: analysis.source,
+    };
+    const content = renderManualNote(event, analysis, noteFrontmatter);
+    await fs.writeFile(notePath, content, 'utf8');
+  }
 
   const dailyPath = await upsertDailyNote(project, payload, analysis, noteRelativePath, eventDate);
   const indexPath = await updateProjectIndex(project);
 
-  await runGit(['add', '.']);
-  const commitMessage = `kb: ${project.project_slug} ${payload.event_type} ${payload.event_type === 'manual_note' ? time : shortSha(payload.head_sha)}`;
-  const commitResult = await runGit(['commit', '-m', commitMessage], { allowFailure: true });
-
+  let commitMessage = `kb: ${project.project_slug} ${payload.event_type} ${payload.event_type === 'manual_note' ? time : shortSha(payload.head_sha)}`;
+  let commitResult = { ok: false };
   let pushed = false;
   let pushMessage = 'disabled';
-  if (enableGitPush) {
-    const remoteResult = await runGit(['remote'], { allowFailure: true });
-    if (String(remoteResult.stdout || '').split(/\r?\n/).includes('origin')) {
-      const pushGitConfigs = buildPushGitConfigs(vaultRemoteUrl);
-      if (/^https:\/\//i.test(vaultRemoteUrl) && pushGitConfigs.length === 0) {
-        pushMessage = 'missing_push_credentials';
+
+  if (gitBatchMode) {
+    commitMessage = `${commitMessage} (deferred)`;
+    pushMessage = 'deferred_batch_mode';
+  } else {
+    await runGit(['add', '.']);
+    commitResult = await runGit(['commit', '-m', commitMessage], { allowFailure: true });
+
+    if (enableGitPush) {
+      const remoteResult = await runGit(['remote'], { allowFailure: true });
+      if (String(remoteResult.stdout || '').split(/\r?\n/).includes('origin')) {
+        const pushGitConfigs = buildPushGitConfigs(vaultRemoteUrl);
+        if (/^https:\/\//i.test(vaultRemoteUrl) && pushGitConfigs.length === 0) {
+          pushMessage = 'missing_push_credentials';
+        } else {
+          const pushResult = await runGit(['push', 'origin', 'HEAD'], {
+            allowFailure: true,
+            gitConfigs: pushGitConfigs,
+          });
+          pushed = pushResult.ok;
+          pushMessage = pushResult.ok ? 'pushed' : pushResult.stderr || 'push_failed';
+        }
       } else {
-        const pushResult = await runGit(['push', 'origin', 'HEAD'], {
-          allowFailure: true,
-          gitConfigs: pushGitConfigs,
-        });
-        pushed = pushResult.ok;
-        pushMessage = pushResult.ok ? 'pushed' : pushResult.stderr || 'push_failed';
+        pushMessage = 'remote_missing';
       }
-    } else {
-      pushMessage = 'remote_missing';
     }
   }
 
@@ -944,12 +1036,12 @@ async function persistEvent(project, payload, analysis) {
     eventId: payload.event_id,
     eventType: payload.event_type,
     project: project.project_slug,
-    notePath: noteRelativePath,
+    notePath: isManual ? noteRelativePath : toRelativeVaultPath(dailyPath),
     dailyPath: toRelativeVaultPath(dailyPath),
     indexPath: toRelativeVaultPath(indexPath),
     commitCreated: commitResult.ok,
     commitMessage,
-    pushAttempted: enableGitPush,
+    pushAttempted: gitBatchMode ? false : enableGitPush,
     pushStatus: pushMessage,
     pushed,
     summary: analysis.summary,

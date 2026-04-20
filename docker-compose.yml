@@ -1,4 +1,34 @@
 services:
+  kb-agent-server:
+    build:
+      context: ./knowledge-base
+      dockerfile: Dockerfile.kb-agent
+    image: kb-agent-server:local
+    restart: always
+    env_file:
+      - .env
+    environment:
+      HOME: /home/node
+      KB_OPENCODE_MODEL: ${KB_OPENCODE_MODEL}
+      KB_AGENT_SERVER_HOST: 0.0.0.0
+      KB_AGENT_SERVER_PORT: 8787
+      KB_AGENT_COMMAND: /home/node/knowledge-base/kb-agent
+      KB_AGENT_ENV_FILE: /home/node/knowledge-base/.env.kb-agent
+      KB_AGENT_SERVER_ENV_FILE: /home/node/knowledge-base/.env.kb-agent-server
+    ports:
+      - "8787:8787"
+    volumes:
+      - ./knowledge-base:/home/node/knowledge-base:ro
+      - ../knowledge-vault:/home/node/knowledge-vault
+      - kb-agent-opencode-share:/home/node/.local/share/opencode
+      - /home/ubuntu/.config/opencode:/home/node/.config/opencode
+      - /home/ubuntu/.cache/opencode:/home/node/.cache/opencode
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8787/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
   n8n:
     image: ${N8N_IMAGE:-n8nio/n8n:latest}
     restart: ${N8N_RESTART_POLICY:-always}
@@ -27,3 +57,6 @@ services:
       - ${N8N_DATA_DIR:-../n8n-private/data}:/home/node/.n8n
       - ./knowledge-base:/home/node/knowledge-base:ro
       - ../knowledge-vault:/home/node/knowledge-vault
+
+volumes:
+  kb-agent-opencode-share:

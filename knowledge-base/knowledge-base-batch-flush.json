@@ -1,0 +1,162 @@
+[
+  {
+    "id": "kbBatchFlush240001",
+    "name": "Knowledge Base - Batch Flush",
+    "active": true,
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "minutes",
+                "minutesInterval": 10
+              }
+            ]
+          }
+        },
+        "id": "f95c487f-58c7-4f8a-9c91-f564fd7498da",
+        "name": "Every 10 Minutes",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          160
+        ]
+      },
+      {
+        "parameters": {
+          "command": "=node /home/node/knowledge-base/flush-batch.mjs"
+        },
+        "id": "f9058495-7a39-4f66-bbf2-c6e29409269e",
+        "name": "Run Batch Flush",
+        "type": "n8n-nodes-base.executeCommand",
+        "typeVersion": 1,
+        "position": [
+          256,
+          160
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const stdout = String($json.stdout || '').trim();\nlet parsed;\ntry {\n  parsed = JSON.parse(stdout || '{}');\n} catch {\n  parsed = { ok: false, status: 'invalid_processor_output', message: stdout || 'flush returned no json' };\n}\nreturn [{ json: parsed }];"
+        },
+        "id": "798fa72d-7139-461f-a43b-4309794f7a0c",
+        "name": "Parse Flush Result",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          512,
+          160
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "ee458145-777d-4f99-b9bf-4ae223c6197a",
+                "leftValue": "={{ String($json.ok) }}",
+                "rightValue": "false",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals",
+                  "name": "filter.operator.equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "984fde6e-4965-4b58-9dd4-578ce15134db",
+        "name": "Needs Alert?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          768,
+          160
+        ]
+      },
+      {
+        "parameters": {
+          "chatId": "={{ $env.VPS_TELEGRAM_CHAT_ID }}",
+          "text": "={{ $json.alertMessage || $json.message || 'Knowledge base batch flush failed' }}",
+          "additionalFields": {
+            "appendAttribution": false
+          }
+        },
+        "id": "f4a26f15-c2fd-453a-bd76-4ce8eb8d49dc",
+        "name": "Telegram Failure Alert",
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          1024,
+          160
+        ],
+        "credentials": {
+          "telegramApi": {
+            "id": "tgCredVps2400001",
+            "name": "Telegram VPS"
+          }
+        }
+      }
+    ],
+    "connections": {
+      "Every 10 Minutes": {
+        "main": [
+          [
+            {
+              "node": "Run Batch Flush",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Run Batch Flush": {
+        "main": [
+          [
+            {
+              "node": "Parse Flush Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parse Flush Result": {
+        "main": [
+          [
+            {
+              "node": "Needs Alert?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Needs Alert?": {
+        "main": [
+          [
+            {
+              "node": "Telegram Failure Alert",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1"
+    },
+    "pinData": {}
+  }
+]

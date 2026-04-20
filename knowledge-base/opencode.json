@@ -1,0 +1,24 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "autoupdate": false,
+  "share": "disabled",
+  "default_agent": "knowledge-writer",
+  "permission": {
+    "*": "allow",
+    "external_directory": {
+      "*": "deny",
+      "/home/ubuntu/knowledge-vault/**": "allow",
+      "/home/node/knowledge-vault/**": "allow"
+    },
+    "read": {
+      "*": "allow",
+      "*.env": "deny",
+      "*.env.*": "deny",
+      "*.env.example": "allow"
+    },
+    "bash": {
+      "*": "allow",
+      "sudo *": "deny"
+    }
+  }
+}

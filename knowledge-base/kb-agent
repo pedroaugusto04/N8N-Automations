@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_FILE="${KB_AGENT_CONFIG_FILE:-$SCRIPT_DIR/opencode.json}"
+CONFIG_DIR="${KB_AGENT_CONFIG_DIR:-$SCRIPT_DIR/.opencode}"
+ENV_FILE="${KB_AGENT_ENV_FILE:-$SCRIPT_DIR/.env.kb-agent}"
+WORKDIR="${KB_AGENT_WORKDIR:-$SCRIPT_DIR}"
+DEFAULT_AGENT="${KB_OPENCODE_AGENT:-knowledge-writer}"
+DEFAULT_MODEL="${KB_OPENCODE_MODEL:-${OPENCODE_MODEL:-}}"
+OPENCODE_BIN="${KB_OPENCODE_BIN:-}"
+DANGEROUSLY_SKIP_PERMISSIONS="${KB_AGENT_DANGEROUSLY_SKIP_PERMISSIONS:-false}"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  kb-agent [prompt...]
+  kb-agent --tui
+  kb-agent --help
+
+Examples:
+  kb-agent "salve um resumo do erro de webhook na pasta bugs do projeto n8n-automations"
+  kb-agent "leia o pdf /tmp/rag.pdf, crie um resumo e salve em artigos/rag"
+  kb-agent --tui
+
+Notes:
+  - This wrapper always loads the OpenCode config from knowledge-base/.
+  - Scope is limited to /home/ubuntu/n8n/knowledge-base and /home/ubuntu/knowledge-vault.
+  - Set KB_OPENCODE_MODEL to force a specific model, for example:
+      KB_OPENCODE_MODEL=google/gemini-2.5-pro
+EOF
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+if [[ -z "$OPENCODE_BIN" ]]; then
+  if command -v opencode >/dev/null 2>&1; then
+    OPENCODE_BIN="$(command -v opencode)"
+  elif [[ -x "$HOME/.opencode/bin/opencode" ]]; then
+    OPENCODE_BIN="$HOME/.opencode/bin/opencode"
+  fi
+fi
+
+if [[ -z "$OPENCODE_BIN" || ! -x "$OPENCODE_BIN" ]]; then
+  cat >&2 <<'EOF'
+kb-agent: OpenCode is not installed on this host.
+Install it first, for example:
+  curl -fsSL https://opencode.ai/install | bash
+EOF
+  exit 1
+fi
+
+if [[ ! -f "$CONFIG_FILE" ]]; then
+  echo "kb-agent: missing config file: $CONFIG_FILE" >&2
+  exit 1
+fi
+
+if [[ ! -d "$CONFIG_DIR" ]]; then
+  echo "kb-agent: missing config directory: $CONFIG_DIR" >&2
+  exit 1
+fi
+
+if [[ -f "$ENV_FILE" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
+  DEFAULT_MODEL="${KB_OPENCODE_MODEL:-${OPENCODE_MODEL:-$DEFAULT_MODEL}}"
+fi
+
+if [[ -z "${GOOGLE_GENERATIVE_AI_API_KEY:-}" && -n "${KB_GEMINI_API_KEY:-}" ]]; then
+  export GOOGLE_GENERATIVE_AI_API_KEY="$KB_GEMINI_API_KEY"
+fi
+
+if [[ -z "${GOOGLE_GENERATIVE_AI_API_KEY:-}" && -n "${GOOGLE_API_KEY:-}" ]]; then
+  export GOOGLE_GENERATIVE_AI_API_KEY="$GOOGLE_API_KEY"
+fi
+
+if [[ -z "${OPENAI_API_KEY:-}" && -n "${KB_OPENAI_API_KEY:-}" ]]; then
+  export OPENAI_API_KEY="$KB_OPENAI_API_KEY"
+fi
+
+if [[ -z "$DEFAULT_MODEL" && -n "${KB_GEMINI_MODEL:-}" ]]; then
+  DEFAULT_MODEL="google/${KB_GEMINI_MODEL}"
+fi
+
+if [[ -z "$DEFAULT_MODEL" && -n "${KB_OPENAI_MODEL:-}" ]]; then
+  DEFAULT_MODEL="openai/${KB_OPENAI_MODEL}"
+fi
+
+export OPENCODE_CONFIG="$CONFIG_FILE"
+export OPENCODE_CONFIG_DIR="$CONFIG_DIR"
+
+RUN_ARGS=()
+if [[ "$DANGEROUSLY_SKIP_PERMISSIONS" == "true" ]]; then
+  RUN_ARGS+=(--dangerously-skip-permissions)
+fi
+
+if [[ $# -eq 0 || "${1:-}" == "--tui" ]]; then
+  if [[ "${1:-}" == "--tui" ]]; then
+    shift
+  fi
+  cd "$WORKDIR"
+  if [[ -n "$DEFAULT_MODEL" ]]; then
+    exec "$OPENCODE_BIN" . --agent "$DEFAULT_AGENT" --model "$DEFAULT_MODEL" "$@"
+  fi
+  exec "$OPENCODE_BIN" . --agent "$DEFAULT_AGENT" "$@"
+fi
+
+cd "$WORKDIR"
+if [[ -n "$DEFAULT_MODEL" ]]; then
+  exec "$OPENCODE_BIN" run "${RUN_ARGS[@]}" --agent "$DEFAULT_AGENT" --model "$DEFAULT_MODEL" "$@"
+fi
+exec "$OPENCODE_BIN" run "${RUN_ARGS[@]}" --agent "$DEFAULT_AGENT" "$@"
