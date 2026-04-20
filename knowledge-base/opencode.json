@@ -7,7 +7,6 @@
     "*": "allow",
     "external_directory": {
       "*": "deny",
-      "/home/ubuntu/knowledge-vault/**": "allow",
       "/home/node/knowledge-vault/**": "allow"
     },
     "read": {

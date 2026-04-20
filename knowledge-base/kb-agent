@@ -25,7 +25,7 @@ Examples:
 
 Notes:
   - This wrapper always loads the OpenCode config from knowledge-base/.
-  - Scope is limited to /home/ubuntu/n8n/knowledge-base and /home/ubuntu/knowledge-vault.
+  - Scope is limited to /home/node/knowledge-base and /home/node/knowledge-vault.
   - Set KB_OPENCODE_MODEL to force a specific model, for example:
       KB_OPENCODE_MODEL=google/gemini-2.5-pro
 EOF

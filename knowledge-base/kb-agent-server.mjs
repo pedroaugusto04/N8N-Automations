@@ -296,9 +296,6 @@ async function resolveFilesRoot() {
     explicitRoot,
     process.env.KB_VAULT_DIR,
     '/home/node/knowledge-vault',
-    '/home/ubuntu/knowledge-vault',
-    path.join(scriptDir, '..', '..', 'knowledge-vault'),
-    path.join(scriptDir, 'uploads'),
   ]
     .filter(Boolean)
     .map((entry) => path.resolve(String(entry)));
