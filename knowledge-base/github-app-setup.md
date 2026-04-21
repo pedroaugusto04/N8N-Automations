@@ -6,11 +6,11 @@ Use this mode to decouple the knowledge-base ingestion flow from individual repo
 
 - Webhook path: `/n8n/webhook/gH8xKbIngest0001/webhook/kb-event`
 - Example production webhook URL: `https://example.com/n8n/webhook/gH8xKbIngest0001/webhook/kb-event`
-- The same workflow also accepts manual `kb-note` entries.
+- The same workflow also accepts manual `kb` entries (`multipart/form-data`).
 
 ## Required env vars on the VPS
 
-- `KB_WEBHOOK_SECRET`: shared secret used by `kb-note`
+- `KB_WEBHOOK_SECRET`: shared secret used by `kb`
 - `KB_GITHUB_APP_WEBHOOK_SECRET`: GitHub App webhook secret used to validate `x-hub-signature-256`
 - `KB_AI_PROVIDER`: optional, `openai`, `gemini`, or `auto` (default `openai`)
 - `KB_OPENAI_API_KEY`: optional, required when provider is `openai`

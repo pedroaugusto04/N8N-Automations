@@ -8,7 +8,9 @@ import { execFile as execFileCb } from 'node:child_process';
 
 const execFile = promisify(execFileCb);
 const vaultPath = process.env.KB_VAULT_PATH || '/home/node/knowledge-vault';
+const archivePath = process.env.KB_ARCHIVE_PATH || '/home/node/knowledge-vault-archive';
 const manifestPath = process.env.KB_PROJECTS_MANIFEST || '/home/node/knowledge-base/projects.json';
+const maxVaultAttachmentBytes = Number(process.env.KB_ATTACHMENT_MAX_VAULT_BYTES || 10 * 1024 * 1024);
 const semanticTextVersion = 1;
 const aiProvider = (process.env.KB_AI_PROVIDER || 'openai').trim().toLowerCase();
 const openaiModel = (process.env.KB_OPENAI_MODEL || '').trim();
@@ -167,10 +169,44 @@ function trimParagraph(value, fallback) {
   return normalized || fallback;
 }
 
+function parseTags(value) {
+  if (Array.isArray(value)) {
+    return unique(value.map((entry) => slugify(String(entry || ''))).filter(Boolean));
+  }
+  const text = String(value || '').trim();
+  if (!text) {
+    return [];
+  }
+  if (text.startsWith('[') && text.endsWith(']')) {
+    try {
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) {
+        return unique(parsed.map((entry) => slugify(String(entry || ''))).filter(Boolean));
+      }
+    } catch {
+      // Fallback to CSV parser below.
+    }
+  }
+  return unique(
+    text
+      .split(',')
+      .map((entry) => slugify(entry))
+      .filter(Boolean),
+  );
+}
+
 async function readManifest() {
   const raw = await fs.readFile(manifestPath, 'utf8');
   const parsed = JSON.parse(raw);
   return Array.isArray(parsed.projects) ? parsed.projects : [];
+}
+
+async function readStdinText() {
+  const chunks = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+  }
+  return Buffer.concat(chunks).toString('utf8');
 }
 
 function unwrapInput(decoded) {
@@ -179,6 +215,7 @@ function unwrapInput(decoded) {
     return {
       headers: normalizeHeaders(decoded.headers),
       payload,
+      binaries: decoded.binaries && typeof decoded.binaries === 'object' ? decoded.binaries : {},
       rawBody: decodeRawBody(decoded.raw_body_b64) || serializePayloadFallback(payload),
     };
   }
@@ -186,6 +223,7 @@ function unwrapInput(decoded) {
   return {
     headers: normalizeHeaders(decoded?.headers),
     payload,
+    binaries: decoded?.binaries && typeof decoded.binaries === 'object' ? decoded.binaries : {},
     rawBody: decodeRawBody(decoded?.raw_body_b64) || serializePayloadFallback(payload),
   };
 }
@@ -550,6 +588,7 @@ function buildPromptPayload(event) {
           files,
           commits,
         };
+  return promptPayload;
 }
 
 function parseJsonText(content) {
@@ -705,6 +744,53 @@ function toRelativeVaultPath(targetPath) {
   return path.relative(vaultPath, targetPath).replace(/\\/g, '/');
 }
 
+function sanitizeAttachmentName(fileName) {
+  const parsed = path.parse(String(fileName || 'attachment.bin'));
+  const safeBase = slugify(parsed.name || 'attachment') || 'attachment';
+  const safeExt = String(parsed.ext || '').replace(/[^.\w-]/g, '');
+  return `${safeBase}${safeExt || '.bin'}`;
+}
+
+async function persistAttachment(project, payload, eventDate) {
+  const attachment = payload.attachment;
+  if (!attachment || !attachment.data_b64) {
+    return null;
+  }
+  const { year, month, day, time } = getDateParts(eventDate);
+  const dataBuffer = Buffer.from(attachment.data_b64, 'base64');
+  const safeName = sanitizeAttachmentName(attachment.file_name);
+  const uniqueName = `${year}${month}${day}-${time}-${safeName}`;
+  const inVault = attachment.size_bytes <= maxVaultAttachmentBytes;
+  const targetDir = inVault
+    ? path.join(vaultPath, 'projects', project.project_slug, 'assets', year, month)
+    : path.join(archivePath, project.project_slug, year, month);
+  await ensureDir(targetDir);
+  const targetPath = path.join(targetDir, uniqueName);
+  await fs.writeFile(targetPath, dataBuffer);
+
+  if (inVault) {
+    return {
+      mode: 'vault',
+      stored_path: toRelativeVaultPath(targetPath),
+      technical_link: targetPath,
+      file_name: attachment.file_name,
+      mime_type: attachment.mime_type,
+      size_bytes: attachment.size_bytes,
+      sha256: attachment.sha256,
+    };
+  }
+
+  return {
+    mode: 'archive',
+    stored_path: targetPath,
+    technical_link: targetPath,
+    file_name: attachment.file_name,
+    mime_type: attachment.mime_type,
+    size_bytes: attachment.size_bytes,
+    sha256: attachment.sha256,
+  };
+}
+
 function buildLinksSection(event) {
   const links = [];
   if (event.repository_url) {
@@ -761,6 +847,20 @@ function renderPushNote(event, analysis, noteFrontmatter) {
 
 function renderManualNote(event, analysis, noteFrontmatter) {
   const frontmatter = renderFrontmatter(noteFrontmatter);
+  const attachment = event.attachment;
+  const attachmentSection = attachment
+    ? [
+        '## Attachment',
+        `- mode: ${attachment.mode}`,
+        `- original_name: ${attachment.file_name}`,
+        `- mime: ${attachment.mime_type}`,
+        `- size_bytes: ${attachment.size_bytes}`,
+        `- sha256: ${attachment.sha256}`,
+        `- path: ${attachment.stored_path}`,
+        `- technical_link: ${attachment.technical_link}`,
+        '',
+      ]
+    : ['## Attachment', '- none', ''];
   return [
     frontmatter,
     `# ${event.display_name} - manual note`,
@@ -780,6 +880,7 @@ function renderManualNote(event, analysis, noteFrontmatter) {
     '## Próximos passos',
     analysis.nextSteps,
     '',
+    ...attachmentSection,
     '## Contexto Git',
     `- repo: ${event.repo || 'n/a'}`,
     `- branch: ${event.branch || 'n/a'}`,
@@ -824,6 +925,14 @@ async function upsertDailyNote(project, event, analysis, noteRelativePath, event
   let entry = '';
   if (event.event_type === 'manual_note') {
     const manualLabel = noteRelativePath ? `[manual](${path.basename(noteRelativePath)})` : 'manual';
+    const attachmentLines = event.attachment
+      ? [
+          `- attachment_mode: ${event.attachment.mode}`,
+          `- attachment_path: ${event.attachment.stored_path}`,
+          `- attachment_size: ${event.attachment.size_bytes}`,
+          `- attachment_sha256: ${event.attachment.sha256}`,
+        ]
+      : ['- attachment_mode: none'];
     entry = [
       eventMarker,
       `### ${time} ${manualLabel}`,
@@ -837,6 +946,7 @@ async function upsertDailyNote(project, event, analysis, noteRelativePath, event
       '#### Contexto',
       `- branch: ${event.branch || 'n/a'}`,
       `- head_sha: ${event.head_sha || 'n/a'}`,
+      ...attachmentLines,
       '',
     ].join('\n');
   } else {
@@ -938,11 +1048,13 @@ async function updateProjectIndex(project) {
 async function persistEvent(project, payload, analysis) {
   const eventDate = parseDate(payload.triggered_at);
   const { year, month, day, time } = getDateParts(eventDate);
+  const persistedAttachment = await persistAttachment(project, payload, eventDate);
   const event =
     payload.event_type === 'manual_note'
       ? {
           ...payload,
           display_name: project.display_name,
+          attachment: persistedAttachment,
         }
       : {
           ...payload,
@@ -976,6 +1088,7 @@ async function persistEvent(project, payload, analysis) {
     const noteFrontmatter = {
       id: payload.event_id,
       type: 'manual_note',
+      kind: payload.kind || 'manual_note',
       project: project.project_slug,
       repo: payload.repo || project.repo_full_name || '',
       branch: payload.branch || project.default_branch,
@@ -991,6 +1104,10 @@ async function persistEvent(project, payload, analysis) {
       tags,
       semantic_text_version: semanticTextVersion,
       analysis_source: analysis.source,
+      attachment_mode: persistedAttachment?.mode || 'none',
+      attachment_path: persistedAttachment?.stored_path || '',
+      attachment_sha256: persistedAttachment?.sha256 || '',
+      attachment_size_bytes: persistedAttachment?.size_bytes || 0,
     };
     const content = renderManualNote(event, analysis, noteFrontmatter);
     await fs.writeFile(notePath, content, 'utf8');
@@ -1033,10 +1150,14 @@ async function persistEvent(project, payload, analysis) {
 
   return {
     ok: true,
+    event_id: payload.event_id,
     eventId: payload.event_id,
     eventType: payload.event_type,
     project: project.project_slug,
+    kind: payload.kind || 'manual_note',
     notePath: isManual ? noteRelativePath : toRelativeVaultPath(dailyPath),
+    attachmentMode: persistedAttachment?.mode || 'none',
+    attachmentPath: persistedAttachment?.stored_path || '',
     dailyPath: toRelativeVaultPath(dailyPath),
     indexPath: toRelativeVaultPath(indexPath),
     commitCreated: commitResult.ok,
@@ -1049,9 +1170,75 @@ async function persistEvent(project, payload, analysis) {
   };
 }
 
+function parseAttachmentFromInput(payload, binaries) {
+  const attachmentMeta = payload?.attachment && typeof payload.attachment === 'object' ? payload.attachment : {};
+  const binaryEntries = binaries && typeof binaries === 'object' ? Object.entries(binaries) : [];
+  const primaryBinary = binaryEntries.length > 0 ? binaryEntries[0][1] : null;
+  const dataB64 = String(primaryBinary?.data || '').trim();
+  const fileName = String(
+    payload.attachment_name ||
+      attachmentMeta.file_name ||
+      primaryBinary?.fileName ||
+      primaryBinary?.file_name ||
+      '',
+  ).trim();
+  const mimeType = String(
+    payload.attachment_mime ||
+      attachmentMeta.mime_type ||
+      primaryBinary?.mimeType ||
+      primaryBinary?.mime_type ||
+      'application/octet-stream',
+  ).trim();
+  const sizeBytes = Number(
+    payload.attachment_size ||
+      attachmentMeta.size_bytes ||
+      primaryBinary?.fileSize ||
+      primaryBinary?.file_size ||
+      0,
+  );
+  const sha256 = String(payload.attachment_sha256 || attachmentMeta.sha256 || '').trim().toLowerCase();
+
+  if (!dataB64 && !fileName) {
+    return null;
+  }
+
+  if (!dataB64) {
+    return {
+      file_name: fileName || 'attachment.bin',
+      mime_type: mimeType || 'application/octet-stream',
+      size_bytes: Number.isFinite(sizeBytes) && sizeBytes > 0 ? sizeBytes : 0,
+      sha256: sha256 || '',
+      data_b64: '',
+    };
+  }
+
+  let buffer;
+  try {
+    buffer = Buffer.from(dataB64, 'base64');
+  } catch {
+    throw new Error('invalid_attachment_base64');
+  }
+  const resolvedSize = buffer.byteLength;
+  const resolvedSha = crypto.createHash('sha256').update(buffer).digest('hex');
+  if (Number.isFinite(sizeBytes) && sizeBytes > 0 && sizeBytes !== resolvedSize) {
+    throw new Error('attachment_size_mismatch');
+  }
+  if (sha256 && sha256 !== resolvedSha) {
+    throw new Error('attachment_sha256_mismatch');
+  }
+  return {
+    file_name: fileName || 'attachment.bin',
+    mime_type: mimeType || 'application/octet-stream',
+    size_bytes: resolvedSize,
+    sha256: resolvedSha,
+    data_b64: dataB64,
+  };
+}
+
 function normalizePayloadAndAuth(input, projects) {
   const headers = input.headers || {};
   const rawBody = input.rawBody || '';
+  const binaries = input.binaries || {};
   if (headers['x-github-event']) {
     assertGithubSignature(headers, rawBody);
     const normalized = normalizeGithubPushPayload(input.payload || {}, headers);
@@ -1075,7 +1262,9 @@ function normalizePayloadAndAuth(input, projects) {
   payload.triggered_at = String(payload.triggered_at || new Date().toISOString()).trim();
   payload.repo = String(payload.repo || '').trim();
   payload.branch = String(payload.branch || '').trim();
-  payload.tags = Array.isArray(payload.tags) ? payload.tags : [];
+  payload.kind = slugify(String(payload.kind || 'manual_note').replace(/_/g, '-')).replace(/-/g, '_') || 'manual_note';
+  payload.tags = parseTags(payload.tags || payload.tags_json || payload.tags_csv);
+  payload.attachment = parseAttachmentFromInput(payload, binaries);
 
   if (!payload.event_type || !payload.event_id) {
     throw new Error('invalid_payload_missing_type_or_id');
@@ -1084,6 +1273,9 @@ function normalizePayloadAndAuth(input, projects) {
     payload.raw_text = trimParagraph(payload.raw_text, '');
     if (!payload.raw_text) {
       throw new Error('manual_note_without_text');
+    }
+    if (!['manual_note', 'bug', 'resume', 'article', 'daily'].includes(payload.kind)) {
+      throw new Error('invalid_manual_note_kind');
     }
   }
 
@@ -1098,12 +1290,30 @@ function normalizePayloadAndAuth(input, projects) {
 }
 
 async function main() {
-  const encoded = process.argv[2];
-  if (!encoded) {
-    throw new Error('missing_base64_payload');
+  const mode = process.argv[2] || '';
+  let rawInput = '';
+  if (mode === '--stdin' || mode === '--stdin-base64') {
+    rawInput = await readStdinText();
+    if (!rawInput.trim()) {
+      throw new Error('missing_stdin_payload');
+    }
+  } else if (mode === '--file') {
+    const filePath = process.argv[3];
+    if (!filePath) {
+      throw new Error('missing_file_payload');
+    }
+    rawInput = await fs.readFile(filePath, 'utf8');
+  } else {
+    rawInput = process.argv[2] || '';
+    if (!rawInput) {
+      throw new Error('missing_base64_payload');
+    }
   }
 
-  const decoded = JSON.parse(Buffer.from(encoded, 'base64').toString('utf8'));
+  const decoded =
+    mode === '--stdin'
+      ? JSON.parse(rawInput)
+      : JSON.parse(Buffer.from(rawInput.trim(), 'base64').toString('utf8'));
   const input = unwrapInput(decoded);
   const projects = await readManifest();
   const normalized = normalizePayloadAndAuth(input, projects);

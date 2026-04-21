@@ -1,55 +1,38 @@
 ---
 name: kb-vault-cli
-description: Use quando o usuario pedir para criar/atualizar notas no Knowledge Vault por linguagem natural. Prioriza comando curto `kb` e usa `kb-note`/wrappers apenas quando necessario.
+description: Use quando o usuario pedir para criar/atualizar notas no Knowledge Vault por linguagem natural. Sempre usa o comando unico `kb` no modo remote-first.
 ---
 
 # KB Vault CLI
 
-## Runtime-First Command Policy
+## Command Policy
 
-1. Valide os comandos instalados antes de agir:
-- `which kb kb-note kb-bug kb-resume kb-article kb-summary kb-file`
-- Se wrappers nao existirem, use somente `kb-note`.
+1. Valide o comando principal antes de agir:
+- `which kb`
 
-2. Interface atual suportada:
-- Preferencial (curta):
-- `kb note [project] [texto]`
-- `kb bug [project] [texto]`
-- `kb resume|summary [project] [texto]`
-- `kb article [project] [texto]`
-- `kb daily [project] [texto]`
-- `kb file [project] <arquivo> [--note ...] [--title ...] [--tags ...]`
-- Compatibilidade:
-- `kb-note --kind <bug|resume|article|manual_note|postmortem|daily> --project <slug> [opcoes] [text]`
-- Wrappers:
-- `kb-bug <project> [text]`
-- `kb-resume <project> [text]`
-- `kb-article <project> [text]`
-- `kb-summary <project> [text]`
-- `kb-file [project] <arquivo>`
+2. Interface oficial suportada:
+- `kb "<texto livre>" [--path /arquivo] [--project slug] [--kind manual_note|bug|resume|article|daily] [--tags a,b] [--yes]`
 
-3. Flags validas do `kb-note`:
-- `--project`, `--kind`, `--title`, `--name`, `--folder`, `--status`, `--source-kind`, `--severity`, `--source-file`, `--tags`, `--file`
-- atalhos: `-p`, `-k`, `-t`, `-n`, `-d`
-- Nunca inventar flags fora dessa lista.
+3. Nao use comandos legados:
+- `kb-note`, `kb-bug`, `kb-resume`, `kb-article`, `kb-summary`, `kb-file`
+- Se o usuario pedir legado, converta para o formato unico `kb "..."`.
 
-## Mapping de Intencao -> Comando
+4. Politica de arquivo:
+- Use `--path` para 1 arquivo por comando (V1).
+- Nao inferir caminho de arquivo a partir do texto livre.
 
-- Bug report: preferir `kb bug <project> <texto>`.
-- Resumo de conteudo/chat: preferir `kb summary <project> <texto>` (ou via stdin).
-- Artigo/guia: preferir `kb article <project> <texto>`.
-- Arquivo interessante: preferir `kb file <project> <arquivo> --note "motivo"`.
-- Casos avancados (postmortem, nome/metadata custom): usar `kb-note` com flags explicitas.
+## Mapping de Intencao -> kind
 
-## Regras de Path
+- Bug report: `--kind bug`
+- Resumo: `--kind resume`
+- Artigo/guia: `--kind article`
+- Nota geral: `--kind manual_note`
+- Diario: `--kind daily`
 
-- `--folder` sempre relativo ao vault, sem path absoluto.
-- Nunca usar `/home/...` em `--folder`.
-- Rejeitar `--folder` com `..` (path traversal).
-- `--file` pode receber caminho absoluto apenas como arquivo de entrada.
+Se ambiguidade e o usuario nao pedir explicitamente, deixar classificacao automatica do `kb` (com prompt de confirmacao quando necessario).
 
 ## Execucao
 
-- Execute o comando diretamente sempre que possivel.
-- Retorne o comando executado e o caminho final gerado pelo CLI.
-- Se o pedido do usuario conflitar com as capacidades atuais, explique a limitacao e aplique o comando valido mais proximo.
+- Sempre enviar remoto via webhook (`KB_WEBHOOK_URL` + `x-kb-secret`).
+- Nunca fazer fallback para escrita local no vault.
+- Retorne comando executado e resposta JSON principal (`event_id`, `project`, `kind`, `notePath`, `attachmentMode`, `attachmentPath`, `pushStatus`).

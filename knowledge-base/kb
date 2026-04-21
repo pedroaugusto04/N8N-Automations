@@ -2,61 +2,294 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_FILE="${KB_NOTE_CONFIG_FILE:-$HOME/.config/kb-note/config.env}"
+
+if [[ -f "$CONFIG_FILE" ]]; then
+  # shellcheck disable=SC1090
+  source "$CONFIG_FILE"
+fi
+
+MAX_INLINE_ATTACHMENT_BYTES=$((10 * 1024 * 1024))
 
 usage() {
   cat <<'USAGE'
 Usage:
-  kb <command> [args]
-
-Commands:
-  note [project] <text>      -> manual_note
-  bug [project] <text>
-  resume [project] <text>
-  article [project] <text>
-  daily [project] [text]
-  summary [project] [text]   -> resume
-  file [project] <path>      -> captura arquivo
+  kb "<texto livre>" [--path /arquivo] [--project slug] [--kind manual_note|bug|resume|article|daily] [--tags a,b] [--yes]
 
 Examples:
-  kb note "resumo do que fiz agora"
-  kb bug "erro 401 no webhook"
-  kb summary n8n-automations "sessao de refactor do parser"
-  kb file ./src/auth.ts --note "referencia do middleware"
+  kb "corrigi timeout no webhook"
+  kb "erro 401 no webhook de ingestao" --kind bug --project n8n-automations
+  kb "referencia do parser para revisao" --path ./knowledge-base/process-event-v2.mjs --tags parser,ingestion
 USAGE
 }
 
-cmd="${1:-}"
-if [[ -z "$cmd" || "$cmd" == "-h" || "$cmd" == "--help" ]]; then
+join_url() {
+  local base="${1%/}"
+  local suffix="${2#/}"
+  printf '%s/%s' "$base" "$suffix"
+}
+
+slugify() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9-]+/-/g; s/^-+//; s/-+$//; s/-+/-/g'
+}
+
+trim_spaces() {
+  printf '%s' "$1" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//'
+}
+
+normalize_tags_json() {
+  local tags_csv="$1"
+  if [[ -z "$tags_csv" ]]; then
+    printf '[]'
+    return 0
+  fi
+
+  local out=""
+  local item
+  IFS=',' read -r -a raw_tags <<<"$tags_csv"
+  for item in "${raw_tags[@]}"; do
+    item="$(slugify "$(trim_spaces "$item")")"
+    [[ -z "$item" ]] && continue
+    if [[ -n "$out" ]]; then
+      out+=","
+    fi
+    out+="\"$item\""
+  done
+  printf '[%s]' "$out"
+}
+
+detect_project_from_git_manifest() {
+  local manifest="$1"
+  local remote_url=""
+  local repo_full_name=""
+
+  [[ -f "$manifest" ]] || return 1
+  git rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 1
+  remote_url="$(git config --get remote.origin.url 2>/dev/null || true)"
+  [[ -n "$remote_url" ]] || return 1
+
+  repo_full_name="$(printf '%s' "$remote_url" | sed -E 's#^git@github.com:#https://github.com/#; s#\.git$##')"
+  repo_full_name="$(printf '%s' "$repo_full_name" | sed -E 's#^https?://github.com/##; s#^ssh://git@github.com/##; s#^github.com/##; s#^/##')"
+  [[ -n "$repo_full_name" ]] || return 1
+
+  node -e '
+const fs = require("fs");
+const repo = process.argv[1].toLowerCase();
+const manifest = process.argv[2];
+try {
+  const data = JSON.parse(fs.readFileSync(manifest, "utf8"));
+  const projects = Array.isArray(data?.projects) ? data.projects : [];
+  const found = projects.find((p) => String(p?.repo_full_name || "").toLowerCase() === repo);
+  if (found?.project_slug) process.stdout.write(String(found.project_slug));
+} catch {}
+' "$repo_full_name" "$manifest"
+}
+
+infer_kind() {
+  local text_lower
+  text_lower="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+
+  if [[ "$text_lower" =~ (erro|bug|falha|exception|stacktrace|quebrou|incidente) ]]; then
+    printf 'bug high'
+    return 0
+  fi
+  if [[ "$text_lower" =~ (resumo|summary|sumario|sintese|recap) ]]; then
+    printf 'resume medium'
+    return 0
+  fi
+  if [[ "$text_lower" =~ (artigo|article|tutorial|guia|documentacao|doc) ]]; then
+    printf 'article medium'
+    return 0
+  fi
+  if [[ "$text_lower" =~ (hoje|daily|diario|standup) ]]; then
+    printf 'daily medium'
+    return 0
+  fi
+  printf 'manual_note low'
+}
+
+resolve_webhook_url() {
+  if [[ -n "${KB_WEBHOOK_URL:-}" ]]; then
+    printf '%s' "$KB_WEBHOOK_URL"
+    return 0
+  fi
+
+  if [[ -n "${WEBHOOK_URL:-}" ]]; then
+    printf '%s' "$(join_url "$WEBHOOK_URL" "webhook/gH8xKbIngest0001/webhook/kb-event")"
+    return 0
+  fi
+
+  return 1
+}
+
+if [[ $# -eq 0 ]]; then
+  usage >&2
+  exit 1
+fi
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   usage
   exit 0
 fi
-shift || true
 
-case "$cmd" in
-  note)
-    exec "$SCRIPT_DIR/kb-note" --kind manual_note "$@"
+RAW_TEXT=""
+PROJECT_SLUG=""
+KIND=""
+TAGS_CSV=""
+ATTACHMENT_PATH=""
+AUTO_CONFIRM="false"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --project)
+      PROJECT_SLUG="$(slugify "${2:-}")"
+      shift 2
+      ;;
+    --kind)
+      KIND="$(slugify "${2:-}")"
+      shift 2
+      ;;
+    --tags)
+      TAGS_CSV="${2:-}"
+      shift 2
+      ;;
+    --path)
+      ATTACHMENT_PATH="${2:-}"
+      shift 2
+      ;;
+    --yes)
+      AUTO_CONFIRM="true"
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      if [[ -z "$RAW_TEXT" ]]; then
+        RAW_TEXT="$1"
+      else
+        RAW_TEXT="$RAW_TEXT $1"
+      fi
+      shift
+      ;;
+  esac
+done
+
+RAW_TEXT="$(trim_spaces "$RAW_TEXT")"
+if [[ -z "$RAW_TEXT" ]]; then
+  echo "kb: texto obrigatorio. Uso: kb \"<texto livre>\" [--path arquivo] [...]" >&2
+  exit 1
+fi
+
+case "$KIND" in
+  ""|manual-note)
+    KIND="${KIND/manual-note/manual_note}"
     ;;
-  bug)
-    exec "$SCRIPT_DIR/kb-note" --kind bug "$@"
-    ;;
-  resume)
-    exec "$SCRIPT_DIR/kb-note" --kind resume "$@"
-    ;;
-  article)
-    exec "$SCRIPT_DIR/kb-note" --kind article "$@"
-    ;;
-  daily)
-    exec "$SCRIPT_DIR/kb-note" --kind daily "$@"
-    ;;
-  summary)
-    exec "$SCRIPT_DIR/kb-summary" "$@"
-    ;;
-  file)
-    exec "$SCRIPT_DIR/kb-file" "$@"
+  manual_note|bug|resume|article|daily)
     ;;
   *)
-    echo "kb: comando invalido: $cmd" >&2
-    usage >&2
+    echo "kb: --kind invalido '$KIND' (use manual_note|bug|resume|article|daily)" >&2
     exit 1
     ;;
 esac
+
+if [[ -z "$KIND" ]]; then
+  read -r inferred_kind inferred_confidence <<<"$(infer_kind "$RAW_TEXT")"
+  KIND="$inferred_kind"
+  if [[ "$inferred_confidence" == "low" && "$AUTO_CONFIRM" != "true" ]]; then
+    printf "kb: classificacao ambigua, assumir kind='%s'? [Y/n] " "$KIND" >&2
+    answer=""
+    read -r answer || true
+    answer="$(printf '%s' "$answer" | tr '[:upper:]' '[:lower:]')"
+    if [[ -n "$answer" && "$answer" != "y" && "$answer" != "yes" ]]; then
+      echo "kb: abortado. Reexecute com --kind manual_note|bug|resume|article|daily ou --yes." >&2
+      exit 1
+    fi
+  fi
+fi
+
+if [[ -z "$PROJECT_SLUG" ]]; then
+  if [[ -f "$SCRIPT_DIR/projects.json" ]]; then
+    PROJECT_SLUG="$(detect_project_from_git_manifest "$SCRIPT_DIR/projects.json" || true)"
+  fi
+fi
+PROJECT_SLUG="$(slugify "${PROJECT_SLUG:-${KB_NOTE_DEFAULT_PROJECT:-inbox}}")"
+if [[ -z "$PROJECT_SLUG" ]]; then
+  PROJECT_SLUG="inbox"
+fi
+
+ATTACHMENT_ABS=""
+ATTACHMENT_NAME=""
+ATTACHMENT_MIME=""
+ATTACHMENT_SIZE_BYTES=""
+ATTACHMENT_SHA256=""
+if [[ -n "$ATTACHMENT_PATH" ]]; then
+  if [[ ! -f "$ATTACHMENT_PATH" ]]; then
+    echo "kb: arquivo nao encontrado: $ATTACHMENT_PATH" >&2
+    exit 1
+  fi
+  if [[ ! -r "$ATTACHMENT_PATH" ]]; then
+    echo "kb: sem permissao de leitura: $ATTACHMENT_PATH" >&2
+    exit 1
+  fi
+  ATTACHMENT_ABS="$(cd "$(dirname "$ATTACHMENT_PATH")" && pwd)/$(basename "$ATTACHMENT_PATH")"
+  ATTACHMENT_NAME="$(basename "$ATTACHMENT_ABS")"
+  ATTACHMENT_SIZE_BYTES="$(wc -c <"$ATTACHMENT_ABS" | tr -d '[:space:]')"
+  if command -v file >/dev/null 2>&1; then
+    ATTACHMENT_MIME="$(file --mime-type -b "$ATTACHMENT_ABS" 2>/dev/null || true)"
+  fi
+  ATTACHMENT_MIME="${ATTACHMENT_MIME:-application/octet-stream}"
+  if command -v sha256sum >/dev/null 2>&1; then
+    ATTACHMENT_SHA256="$(sha256sum "$ATTACHMENT_ABS" | awk '{print $1}')"
+  elif command -v shasum >/dev/null 2>&1; then
+    ATTACHMENT_SHA256="$(shasum -a 256 "$ATTACHMENT_ABS" | awk '{print $1}')"
+  else
+    echo "kb: sha256sum/shasum nao encontrado para calcular hash do arquivo" >&2
+    exit 1
+  fi
+fi
+
+WEBHOOK_URL_RESOLVED="$(resolve_webhook_url || true)"
+if [[ -z "$WEBHOOK_URL_RESOLVED" ]]; then
+  echo "kb: KB_WEBHOOK_URL nao configurado (ou WEBHOOK_URL ausente)." >&2
+  exit 1
+fi
+if [[ -z "${KB_WEBHOOK_SECRET:-}" ]]; then
+  echo "kb: KB_WEBHOOK_SECRET nao configurado." >&2
+  exit 1
+fi
+
+EVENT_ID="manual:$(date -u +%Y%m%d%H%M%S):$RANDOM"
+EVENT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+TAGS_JSON="$(normalize_tags_json "$TAGS_CSV")"
+
+CURL_ARGS=(
+  --silent
+  --show-error
+  --fail-with-body
+  -X POST "$WEBHOOK_URL_RESOLVED"
+  -H "x-kb-secret: $KB_WEBHOOK_SECRET"
+  -F "event_type=manual_note"
+  -F "event_id=$EVENT_ID"
+  -F "triggered_at=$EVENT_AT"
+  -F "project_slug=$PROJECT_SLUG"
+  -F "source=kb-cli"
+  -F "raw_text=$RAW_TEXT"
+  -F "kind=$KIND"
+  -F "tags_json=$TAGS_JSON"
+)
+
+if [[ -n "$ATTACHMENT_ABS" ]]; then
+  CURL_ARGS+=(
+    -F "attachment=@$ATTACHMENT_ABS;type=$ATTACHMENT_MIME"
+    -F "attachment_name=$ATTACHMENT_NAME"
+    -F "attachment_mime=$ATTACHMENT_MIME"
+    -F "attachment_size=$ATTACHMENT_SIZE_BYTES"
+    -F "attachment_sha256=$ATTACHMENT_SHA256"
+    -F "attachment_threshold=$MAX_INLINE_ATTACHMENT_BYTES"
+  )
+fi
+
+curl "${CURL_ARGS[@]}"
+echo

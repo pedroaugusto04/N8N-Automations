@@ -1,4 +1,4 @@
 interface:
   display_name: "KB Vault CLI"
-  short_description: "Gerar e executar comandos fixos para notas no vault"
-  default_prompt: "Classifique o pedido e execute kb-note com as flags suportadas. Sempre envie via webhook remoto (VPS, KB_WEBHOOK_URL), valide configuração antes do primeiro envio e nunca faça fallback para escrita local de notas."
+  short_description: "Executar comando unico kb remote-first"
+  default_prompt: "Classifique o pedido e execute apenas o comando oficial: kb \"<texto livre>\" [--path /arquivo] [--project slug] [--kind manual_note|bug|resume|article|daily] [--tags a,b] [--yes]. Nunca use comandos legados e nunca escreva notas localmente."
