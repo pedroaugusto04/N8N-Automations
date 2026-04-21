@@ -744,6 +744,35 @@ function toRelativeVaultPath(targetPath) {
   return path.relative(vaultPath, targetPath).replace(/\\/g, '/');
 }
 
+const mimeExtensionMap = {
+  'application/pdf': '.pdf',
+  'image/jpeg': '.jpg',
+  'image/jpg': '.jpg',
+  'image/png': '.png',
+  'image/gif': '.gif',
+  'image/webp': '.webp',
+  'image/svg+xml': '.svg',
+  'text/plain': '.txt',
+  'text/markdown': '.md',
+  'application/json': '.json',
+  'application/zip': '.zip',
+  'application/x-zip-compressed': '.zip',
+};
+
+function extensionFromMime(mimeType) {
+  const normalized = String(mimeType || '').trim().toLowerCase();
+  return mimeExtensionMap[normalized] || '';
+}
+
+function resolveAttachmentFileName(fileName, mimeType) {
+  const raw = String(fileName || '').trim();
+  if (raw) {
+    return raw;
+  }
+  const extension = extensionFromMime(mimeType);
+  return `attachment${extension || '.bin'}`;
+}
+
 function sanitizeAttachmentName(fileName) {
   const parsed = path.parse(String(fileName || 'attachment.bin'));
   const safeBase = slugify(parsed.name || 'attachment') || 'attachment';
@@ -848,6 +877,10 @@ function renderPushNote(event, analysis, noteFrontmatter) {
 function renderManualNote(event, analysis, noteFrontmatter) {
   const frontmatter = renderFrontmatter(noteFrontmatter);
   const attachment = event.attachment;
+  const obsidianLink =
+    attachment?.mode === 'vault' && attachment.stored_path ? `[[${attachment.stored_path}]]` : '';
+  const obsidianEmbed =
+    attachment?.mode === 'vault' && attachment.stored_path ? `![[${attachment.stored_path}]]` : '';
   const attachmentSection = attachment
     ? [
         '## Attachment',
@@ -858,6 +891,8 @@ function renderManualNote(event, analysis, noteFrontmatter) {
         `- sha256: ${attachment.sha256}`,
         `- path: ${attachment.stored_path}`,
         `- technical_link: ${attachment.technical_link}`,
+        ...(obsidianLink ? [`- obsidian_link: ${obsidianLink}`] : []),
+        ...(obsidianEmbed ? [`- obsidian_embed: ${obsidianEmbed}`] : []),
         '',
       ]
     : ['## Attachment', '- none', ''];
@@ -1113,7 +1148,7 @@ async function persistEvent(project, payload, analysis) {
     await fs.writeFile(notePath, content, 'utf8');
   }
 
-  const dailyPath = await upsertDailyNote(project, payload, analysis, noteRelativePath, eventDate);
+  const dailyPath = await upsertDailyNote(project, event, analysis, noteRelativePath, eventDate);
   const indexPath = await updateProjectIndex(project);
 
   let commitMessage = `kb: ${project.project_slug} ${payload.event_type} ${payload.event_type === 'manual_note' ? time : shortSha(payload.head_sha)}`;
@@ -1173,8 +1208,12 @@ async function persistEvent(project, payload, analysis) {
 function parseAttachmentFromInput(payload, binaries) {
   const attachmentMeta = payload?.attachment && typeof payload.attachment === 'object' ? payload.attachment : {};
   const binaryEntries = binaries && typeof binaries === 'object' ? Object.entries(binaries) : [];
-  const primaryBinary = binaryEntries.length > 0 ? binaryEntries[0][1] : null;
-  const dataB64 = String(attachmentMeta.data_b64 || primaryBinary?.data || '').trim();
+  const preferredBinaryEntry =
+    binaryEntries.find(([key]) => ['attachment', 'file', 'upload', 'document', 'image'].includes(String(key).toLowerCase())) ||
+    binaryEntries.find(([key, value]) => String(key).toLowerCase() !== 'data' && value && typeof value === 'object' && String(value?.data || '').trim()) ||
+    null;
+  const primaryBinary = preferredBinaryEntry ? preferredBinaryEntry[1] : null;
+  const dataB64 = String(attachmentMeta.data_b64 || payload.attachment_data_b64 || primaryBinary?.data || '').trim();
   const fileName = String(
     payload.attachment_name ||
       attachmentMeta.file_name ||
@@ -1198,13 +1237,19 @@ function parseAttachmentFromInput(payload, binaries) {
   );
   const sha256 = String(payload.attachment_sha256 || attachmentMeta.sha256 || '').trim().toLowerCase();
 
-  if (!dataB64 && !fileName) {
+  // n8n webhook raw-body mode exposes request payload on binary.data. Do not treat it as a file attachment.
+  if (!attachmentMeta.data_b64 && !payload.attachment_data_b64 && !primaryBinary && !fileName) {
+    return null;
+  }
+
+  if (!dataB64 && !fileName && !mimeType && !sizeBytes && !sha256) {
     return null;
   }
 
   if (!dataB64) {
+    const resolvedName = resolveAttachmentFileName(fileName, mimeType);
     return {
-      file_name: fileName || 'attachment.bin',
+      file_name: resolvedName,
       mime_type: mimeType || 'application/octet-stream',
       size_bytes: Number.isFinite(sizeBytes) && sizeBytes > 0 ? sizeBytes : 0,
       sha256: sha256 || '',
@@ -1226,8 +1271,9 @@ function parseAttachmentFromInput(payload, binaries) {
   if (sha256 && sha256 !== resolvedSha) {
     throw new Error('attachment_sha256_mismatch');
   }
+  const resolvedName = resolveAttachmentFileName(fileName, mimeType);
   return {
-    file_name: fileName || 'attachment.bin',
+    file_name: resolvedName,
     mime_type: mimeType || 'application/octet-stream',
     size_bytes: resolvedSize,
     sha256: resolvedSha,
