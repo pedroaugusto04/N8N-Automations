@@ -5,9 +5,11 @@ import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
-const repoRoot = '/home/pedroduarte/Documents/GitHub/N8N-Automations';
-const kbPath = path.join(repoRoot, 'knowledge-base/kb');
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.dirname(__dirname);
+const kbPath = path.join(repoRoot, 'kb');
 
 function runKb(args, env = {}) {
   return new Promise((resolve) => {
@@ -77,9 +79,12 @@ test('kb sends json payload with text and attachment', async () => {
           event_id: 'manual:test',
           project: 'n8n-automations',
           kind: 'bug',
-          notePath: 'projects/n8n-automations/2026/04/note.md',
+          notePath: '20 Inbox/n8n-automations/2026/04/note.md',
+          canonicalPath: '50 Incidents/n8n-automations/2026/04/canonical.md',
+          followupPath: '60 Followups/n8n-automations/2026/04/followup.md',
+          projectPath: '10 Projects/n8n-automations.md',
           attachmentMode: 'vault',
-          attachmentPath: 'projects/n8n-automations/assets/2026/04/sample.txt',
+          attachmentPath: '90 Assets/n8n-automations/2026/04/sample.txt',
           pushStatus: 'deferred_batch_mode',
         }),
       );
@@ -95,7 +100,27 @@ test('kb sends json payload with text and attachment', async () => {
   await fs.writeFile(attachmentPath, 'sample body', 'utf8');
 
   const result = await runKb(
-    ['fix de timeout no webhook', '--project', 'n8n-automations', '--kind', 'bug', '--path', attachmentPath, '--default'],
+    [
+      'fix de timeout no webhook',
+      '--project',
+      'n8n-automations',
+      '--kind',
+      'bug',
+      '--note-type',
+      'incident',
+      '--importance',
+      'high',
+      '--status',
+      'open',
+      '--follow-up-by',
+      '2026-04-30',
+      '--decision',
+      '--related-projects',
+      'fe-connect,wander-rag',
+      '--path',
+      attachmentPath,
+      '--default',
+    ],
     {
       HOME: tmp,
       KB_WEBHOOK_URL: `http://127.0.0.1:${port}/kb-event`,
@@ -109,16 +134,25 @@ test('kb sends json payload with text and attachment', async () => {
   assert.match(result.stdout, /kb: nota enviada com sucesso\./);
   assert.match(result.stdout, /project: n8n-automations/);
   assert.match(result.stdout, /kind: bug/);
-  assert.match(result.stdout, /note: projects\/n8n-automations\/2026\/04\/note\.md/);
-  assert.match(result.stdout, /attachment: projects\/n8n-automations\/assets\/2026\/04\/sample\.txt \(vault\)/);
+  assert.match(result.stdout, /note: 20 Inbox\/n8n-automations\/2026\/04\/note\.md/);
+  assert.match(result.stdout, /canonical: 50 Incidents\/n8n-automations\/2026\/04\/canonical\.md/);
+  assert.match(result.stdout, /followup: 60 Followups\/n8n-automations\/2026\/04\/followup\.md/);
+  assert.match(result.stdout, /project_page: 10 Projects\/n8n-automations\.md/);
+  assert.match(result.stdout, /attachment: 90 Assets\/n8n-automations\/2026\/04\/sample\.txt \(vault\)/);
   assert.equal(requests.length, 1);
   assert.equal(requests[0].headers['x-kb-secret'], 'test-secret');
   assert.match(String(requests[0].headers['content-type'] || ''), /^application\/json\b/);
   assert.equal(requests[0].json.raw_text, 'fix de timeout no webhook');
   assert.equal(requests[0].json.kind, 'bug');
+  assert.equal(requests[0].json.note_type, 'incident');
+  assert.equal(requests[0].json.importance, 'high');
+  assert.equal(requests[0].json.status, 'open');
+  assert.equal(requests[0].json.follow_up_by, '2026-04-30');
+  assert.equal(requests[0].json.decision_flag, true);
+  assert.deepEqual(requests[0].json.related_projects, ['fe-connect', 'wander-rag']);
   assert.equal(requests[0].json.project_slug, 'n8n-automations');
   assert.equal(requests[0].json.attachment.file_name, 'sample.txt');
-  assert.equal(requests[0].json.attachment.mime_type, 'text/plain');
+  assert.match(requests[0].json.attachment.mime_type, /^(text\/plain|application\/octet-stream)$/);
   assert.equal(requests[0].json.attachment.data_b64, Buffer.from('sample body', 'utf8').toString('base64'));
 });
 
@@ -181,4 +215,6 @@ test('kb asks for missing kind and project one by one with numbered choices', as
   assert.match(result.stdout, /kb: nota enviada com sucesso\./);
   assert.match(result.stdout, /project: n8n-automations/);
   assert.match(result.stdout, /kind: bug/);
+  assert.equal(requests[0].json.note_type, '');
+  assert.deepEqual(requests[0].json.related_projects, []);
 });

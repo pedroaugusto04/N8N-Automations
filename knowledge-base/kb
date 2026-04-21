@@ -14,11 +14,12 @@ MAX_INLINE_ATTACHMENT_BYTES=$((10 * 1024 * 1024))
 usage() {
   cat <<'USAGE'
 Usage:
-  kb "<texto livre>" [--path /arquivo] [--project slug] [--kind manual_note|bug|resume|article|daily] [--tags a,b] [--default]
+  kb "<texto livre>" [--path /arquivo] [--project slug] [--kind manual_note|bug|resume|article|daily] [--note-type event|knowledge|decision|incident] [--importance low|medium|high] [--status open|active|resolved|archived] [--follow-up-by 2026-04-30] [--decision] [--related-projects a,b] [--tags a,b] [--default]
 
 Examples:
   kb "corrigi timeout no webhook"
   kb "erro 401 no webhook de ingestao" --kind bug --project n8n-automations
+  kb "padronizar deploy do backend" --note-type knowledge --importance high --related-projects fe-connect,wander-rag
   kb "referencia do parser para revisao" --path ./knowledge-base/process-event-v2.mjs --tags parser,ingestion
 USAGE
 }
@@ -213,6 +214,32 @@ normalize_tags_json() {
   printf '[%s]' "$out"
 }
 
+normalize_list_json() {
+  local items_csv="$1"
+  local mode="${2:-slug}"
+  if [[ -z "$items_csv" ]]; then
+    printf '[]'
+    return 0
+  fi
+
+  local out=""
+  local item=""
+  IFS=',' read -r -a raw_items <<<"$items_csv"
+  for item in "${raw_items[@]}"; do
+    item="$(trim_spaces "$item")"
+    [[ -z "$item" ]] && continue
+    if [[ "$mode" == "slug" ]]; then
+      item="$(slugify "$item")"
+    fi
+    [[ -z "$item" ]] && continue
+    if [[ -n "$out" ]]; then
+      out+=","
+    fi
+    out+="\"$item\""
+  done
+  printf '[%s]' "$out"
+}
+
 print_response_summary() {
   local response_file="$1"
 
@@ -242,6 +269,9 @@ if (parsed && typeof parsed === "object") {
   const message = String(parsed.message || "").trim();
   const project = String(parsed.project || parsed.project_slug || "").trim();
   const kind = String(parsed.kind || "").trim();
+  const canonicalPath = String(parsed.canonicalPath || parsed.canonical_path || "").trim();
+  const followupPath = String(parsed.followupPath || parsed.followup_path || "").trim();
+  const projectPath = String(parsed.projectPath || parsed.project_path || parsed.indexPath || parsed.index_path || "").trim();
   const notePath = String(parsed.notePath || parsed.note_path || parsed.noteRelativePath || "").trim();
   const attachmentPath = String(parsed.attachmentPath || parsed.attachment_path || "").trim();
   const attachmentMode = String(parsed.attachmentMode || parsed.attachment_mode || "").trim();
@@ -255,11 +285,14 @@ if (parsed && typeof parsed === "object") {
   if (project) console.log(`project: ${project}`);
   if (kind) console.log(`kind: ${kind}`);
   if (notePath) console.log(`note: ${notePath}`);
+  if (canonicalPath) console.log(`canonical: ${canonicalPath}`);
+  if (followupPath) console.log(`followup: ${followupPath}`);
+  if (projectPath) console.log(`project_page: ${projectPath}`);
   if (attachmentPath) {
     console.log(`attachment: ${attachmentPath}${attachmentMode ? ` (${attachmentMode})` : ""}`);
   }
   if (pushStatus) console.log(`push: ${pushStatus}`);
-  if (!project && !kind && !notePath && !attachmentPath && !pushStatus && ok !== false) {
+  if (!project && !kind && !notePath && !canonicalPath && !followupPath && !projectPath && !attachmentPath && !pushStatus && ok !== false) {
     process.stdout.write(`${JSON.stringify(parsed, null, 2)}\n`);
   }
   process.exit(ok === false ? 1 : 0);
@@ -277,11 +310,17 @@ build_manual_note_json_payload() {
   local raw_text="$5"
   local kind="$6"
   local tags_json="$7"
-  local attachment_abs="${8:-}"
-  local attachment_name="${9:-}"
-  local attachment_mime="${10:-}"
-  local attachment_size="${11:-}"
-  local attachment_sha256="${12:-}"
+  local note_type="$8"
+  local importance="$9"
+  local status="${10:-}"
+  local follow_up_by="${11:-}"
+  local decision_flag="${12:-}"
+  local related_projects_json="${13:-}"
+  local attachment_abs="${14:-}"
+  local attachment_name="${15:-}"
+  local attachment_mime="${16:-}"
+  local attachment_size="${17:-}"
+  local attachment_sha256="${18:-}"
 
   node -e '
 const fs = require("fs");
@@ -293,6 +332,12 @@ const [
   rawText,
   kind,
   tagsJson,
+  noteType,
+  importance,
+  status,
+  followUpBy,
+  decisionFlag,
+  relatedProjectsJson,
   attachmentAbs,
   attachmentName,
   attachmentMime,
@@ -306,6 +351,12 @@ try {
   if (Array.isArray(parsed)) tags = parsed;
 } catch {}
 
+let relatedProjects = [];
+try {
+  const parsed = JSON.parse(relatedProjectsJson);
+  if (Array.isArray(parsed)) relatedProjects = parsed;
+} catch {}
+
 const payload = {
   event_type: "manual_note",
   event_id: eventId,
@@ -315,6 +366,12 @@ const payload = {
   raw_text: rawText,
   kind,
   tags,
+  note_type: noteType || "",
+  importance: importance || "",
+  status: status || "",
+  follow_up_by: followUpBy || "",
+  decision_flag: String(decisionFlag || "").trim().toLowerCase() === "true",
+  related_projects: relatedProjects,
 };
 
 if (attachmentAbs) {
@@ -328,7 +385,7 @@ if (attachmentAbs) {
 }
 
 process.stdout.write(JSON.stringify(payload));
-' "$event_id" "$triggered_at" "$project_slug" "$source" "$raw_text" "$kind" "$tags_json" "$attachment_abs" "$attachment_name" "$attachment_mime" "$attachment_size" "$attachment_sha256"
+' "$event_id" "$triggered_at" "$project_slug" "$source" "$raw_text" "$kind" "$tags_json" "$note_type" "$importance" "$status" "$follow_up_by" "$decision_flag" "$related_projects_json" "$attachment_abs" "$attachment_name" "$attachment_mime" "$attachment_size" "$attachment_sha256"
 }
 
 detect_project_from_git_manifest() {
@@ -409,6 +466,12 @@ RAW_TEXT=""
 PROJECT_SLUG=""
 KIND=""
 TAGS_CSV=""
+NOTE_TYPE=""
+IMPORTANCE=""
+NOTE_STATUS=""
+FOLLOW_UP_BY=""
+DECISION_FLAG="false"
+RELATED_PROJECTS_CSV=""
 ATTACHMENT_PATH=""
 USE_DEFAULTS="false"
 
@@ -424,6 +487,30 @@ while [[ $# -gt 0 ]]; do
       ;;
     --tags)
       TAGS_CSV="${2:-}"
+      shift 2
+      ;;
+    --note-type)
+      NOTE_TYPE="$(slugify "${2:-}")"
+      shift 2
+      ;;
+    --importance)
+      IMPORTANCE="$(slugify "${2:-}")"
+      shift 2
+      ;;
+    --status)
+      NOTE_STATUS="$(slugify "${2:-}")"
+      shift 2
+      ;;
+    --follow-up-by)
+      FOLLOW_UP_BY="$(trim_spaces "${2:-}")"
+      shift 2
+      ;;
+    --decision)
+      DECISION_FLAG="true"
+      shift
+      ;;
+    --related-projects)
+      RELATED_PROJECTS_CSV="${2:-}"
       shift 2
       ;;
     --path)
@@ -481,6 +568,33 @@ if [[ -z "$KIND" ]]; then
     )"
   fi
 fi
+
+case "$NOTE_TYPE" in
+  ""|event|knowledge|decision|incident)
+    ;;
+  *)
+    echo "kb: --note-type invalido '$NOTE_TYPE' (use event|knowledge|decision|incident)" >&2
+    exit 1
+    ;;
+esac
+
+case "$IMPORTANCE" in
+  ""|low|medium|high)
+    ;;
+  *)
+    echo "kb: --importance invalido '$IMPORTANCE' (use low|medium|high)" >&2
+    exit 1
+    ;;
+esac
+
+case "$NOTE_STATUS" in
+  ""|open|active|resolved|archived)
+    ;;
+  *)
+    echo "kb: --status invalido '$NOTE_STATUS' (use open|active|resolved|archived)" >&2
+    exit 1
+    ;;
+esac
 
 DETECTED_PROJECT_SLUG=""
 if [[ -z "$PROJECT_SLUG" ]]; then
@@ -558,6 +672,7 @@ fi
 EVENT_ID="manual:$(date -u +%Y%m%d%H%M%S):$RANDOM"
 EVENT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 TAGS_JSON="$(normalize_tags_json "$TAGS_CSV")"
+RELATED_PROJECTS_JSON="$(normalize_list_json "$RELATED_PROJECTS_CSV" "slug")"
 
 PAYLOAD_FILE="$(mktemp)"
 RESPONSE_FILE="$(mktemp)"
@@ -575,6 +690,12 @@ build_manual_note_json_payload \
   "$RAW_TEXT" \
   "$KIND" \
   "$TAGS_JSON" \
+  "$NOTE_TYPE" \
+  "$IMPORTANCE" \
+  "$NOTE_STATUS" \
+  "$FOLLOW_UP_BY" \
+  "$DECISION_FLAG" \
+  "$RELATED_PROJECTS_JSON" \
   "$ATTACHMENT_ABS" \
   "$ATTACHMENT_NAME" \
   "$ATTACHMENT_MIME" \

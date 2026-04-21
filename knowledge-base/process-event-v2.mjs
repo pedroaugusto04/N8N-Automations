@@ -27,6 +27,20 @@ const gitUserEmail = (process.env.KB_VAULT_GIT_USER_EMAIL || 'knowledge-bot@exam
 const gitPushUsername = (process.env.KB_VAULT_GIT_PUSH_USERNAME || '').trim();
 const gitPushToken = (process.env.KB_VAULT_GIT_PUSH_TOKEN || '').trim();
 const ignoredReposEnv = (process.env.KB_IGNORE_REPOS || '').trim();
+const manualNoteKinds = new Set(['manual_note', 'bug', 'resume', 'article', 'daily']);
+const noteTypes = new Set(['event', 'knowledge', 'decision', 'incident', 'followup', 'project_summary']);
+const importanceLevels = new Set(['low', 'medium', 'high']);
+const statusValues = new Set(['open', 'active', 'resolved', 'archived']);
+const vaultFolders = {
+  home: '00 Home',
+  projects: '10 Projects',
+  inbox: '20 Inbox',
+  knowledge: '30 Knowledge',
+  decisions: '40 Decisions',
+  incidents: '50 Incidents',
+  followups: '60 Followups',
+  assets: '90 Assets',
+};
 const saoPauloFormatter = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'America/Sao_Paulo',
   year: 'numeric',
@@ -195,10 +209,68 @@ function parseTags(value) {
   );
 }
 
+function parseList(value) {
+  if (Array.isArray(value)) {
+    return unique(value.map((entry) => String(entry || '').trim()).filter(Boolean));
+  }
+  const text = String(value || '').trim();
+  if (!text) {
+    return [];
+  }
+  if (text.startsWith('[') && text.endsWith(']')) {
+    try {
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) {
+        return unique(parsed.map((entry) => String(entry || '').trim()).filter(Boolean));
+      }
+    } catch {
+      // Fallback to CSV parser below.
+    }
+  }
+  return unique(
+    text
+      .split(',')
+      .map((entry) => String(entry || '').trim())
+      .filter(Boolean),
+  );
+}
+
+function parseBoolean(value) {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
+  return ['1', 'true', 'yes', 'y', 'on'].includes(normalized);
+}
+
+function normalizeEnum(value, allowed, fallback) {
+  const normalized = slugify(String(value || '').replace(/_/g, '-')).replace(/-/g, '_');
+  if (allowed.has(normalized)) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function sanitizeFileStem(value, fallback = 'note') {
+  const stem = slugify(String(value || ''));
+  return stem || fallback;
+}
+
 async function readManifest() {
   const raw = await fs.readFile(manifestPath, 'utf8');
   const parsed = JSON.parse(raw);
-  return Array.isArray(parsed.projects) ? parsed.projects : [];
+  const projects = Array.isArray(parsed.projects) ? parsed.projects : [];
+  return projects.map((project) => ({
+    ...project,
+    name: String(project.name || project.display_name || project.project_slug || '').trim(),
+    owners: Array.isArray(project.owners) ? project.owners.map((entry) => String(entry || '').trim()).filter(Boolean) : [],
+    criticality: normalizeEnum(project.criticality, importanceLevels, 'medium'),
+    status: normalizeEnum(project.status, statusValues, 'active'),
+    aliases: parseList(project.aliases),
+    area: String(project.area || 'engineering').trim() || 'engineering',
+  }));
 }
 
 async function readStdinText() {
@@ -372,11 +444,17 @@ function autoProjectFromPayload(payload) {
   return {
     project_slug: projectSlug,
     display_name: repoName,
+    name: repoName,
     repo_full_name: repoFullName,
     default_branch: String(payload.branch || 'main').trim() || 'main',
     default_tags: [],
     enabled: true,
-    notes_path: `projects/${projectSlug}`,
+    notes_path: `${vaultFolders.projects}/${projectSlug}.md`,
+    owners: [],
+    criticality: 'medium',
+    status: 'active',
+    aliases: [],
+    area: 'engineering',
   };
 }
 
@@ -475,9 +553,11 @@ async function ensureVaultRepository() {
       [
         '# Knowledge Vault',
         '',
-        'Personal engineering knowledge base generated from GitHub pushes and manual notes.',
+        'Operational engineering memory generated from GitHub pushes and manual notes.',
         '',
-        'This repository is intended to be opened in Obsidian as a vault.',
+        'Open this repository as an Obsidian vault.',
+        '',
+        'Primary entrypoint: [[00 Home/Home]].',
         '',
       ].join('\n'),
       'utf8',
@@ -489,6 +569,545 @@ async function ensureVaultRepository() {
     await fs.access(gitignorePath);
   } catch {
     await fs.writeFile(gitignorePath, '.obsidian/\n.DS_Store\n', 'utf8');
+  }
+}
+
+function vaultLink(relativePath, label = '') {
+  const normalized = String(relativePath || '').replace(/\\/g, '/').replace(/\.md$/i, '');
+  if (!normalized) {
+    return label || '';
+  }
+  return label ? `[[${normalized}|${label}]]` : `[[${normalized}]]`;
+}
+
+function projectSummaryPath(project) {
+  return path.join(vaultPath, vaultFolders.projects, `${project.project_slug}.md`);
+}
+
+function folderForCanonicalType(type) {
+  if (type === 'knowledge') {
+    return vaultFolders.knowledge;
+  }
+  if (type === 'decision') {
+    return vaultFolders.decisions;
+  }
+  if (type === 'incident') {
+    return vaultFolders.incidents;
+  }
+  return vaultFolders.inbox;
+}
+
+function splitMarkdownLines(content) {
+  if (Array.isArray(content)) {
+    return content.flatMap((entry) => splitMarkdownLines(entry));
+  }
+  return String(content || '')
+    .split('\n')
+    .map((line) => line.trimEnd());
+}
+
+function renderCallout(type, title, bodyLines = []) {
+  return [
+    `> [!${type}] ${title}`,
+    ...splitMarkdownLines(bodyLines).map((line) => (line ? `> ${line}` : '>')),
+    '',
+  ].join('\n');
+}
+
+function renderQuickLinks(title, intro, links = []) {
+  return [
+    `## ${title}`,
+    intro,
+    '',
+    ...links.map((link) => `- ${link}`),
+    '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function renderMetadataList(items = []) {
+  return items
+    .filter((item) => item && item.value !== undefined && item.value !== null && String(item.value).trim() !== '')
+    .map((item) => `- **${item.label}:** ${item.value}`)
+    .join('\n');
+}
+
+function renderImportanceBadge(value) {
+  const normalized = normalizeEnum(value, importanceLevels, '');
+  const labels = {
+    low: 'BAIXA',
+    medium: 'MEDIA',
+    high: 'ALTA',
+  };
+  return `\`${labels[normalized] || 'N/A'}\``;
+}
+
+function renderStatusBadge(value) {
+  const normalized = normalizeEnum(value, statusValues, '');
+  const labels = {
+    open: 'ABERTO',
+    active: 'ATIVO',
+    resolved: 'RESOLVIDO',
+    archived: 'ARQUIVADO',
+  };
+  return `\`${labels[normalized] || 'N/A'}\``;
+}
+
+function renderCriticalityBadge(value) {
+  const normalized = normalizeEnum(value, importanceLevels, '');
+  const labels = {
+    low: 'BAIXA',
+    medium: 'MEDIA',
+    high: 'ALTA',
+  };
+  return `\`${labels[normalized] || 'N/A'}\``;
+}
+
+function renderDataviewSection({
+  title,
+  description = '',
+  sourceFolder,
+  whereClause = '',
+  sortField = 'occurred_at',
+  sortDirection = 'DESC',
+  limit = 20,
+  columns = [],
+}) {
+  const safeColumns = [...columns, 'file.link AS Nota'];
+  return [
+    `## ${title}`,
+    description,
+    '',
+    '```dataview',
+    `TABLE ${safeColumns.join(', ')}`,
+    `FROM "${sourceFolder}"`,
+    whereClause ? `WHERE ${whereClause}` : '',
+    `SORT ${sortField} ${sortDirection}`,
+    `LIMIT ${limit}`,
+    '```',
+    '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+async function writeGeneratedPage(relativePath, content) {
+  const targetPath = path.join(vaultPath, relativePath);
+  await ensureDir(path.dirname(targetPath));
+  await fs.writeFile(targetPath, content, 'utf8');
+  return targetPath;
+}
+
+function renderHomePage() {
+  return [
+    renderFrontmatter({
+      id: 'home',
+      type: 'dashboard',
+      canonical: true,
+      tags: ['dashboard', 'home'],
+    }),
+    '# Home',
+    '',
+    renderCallout('info', 'Como usar este vault', [
+      'Comece por este dashboard para entender o que exige atencao agora.',
+      'Abra Projetos para contexto por iniciativa e use Pendencias e Incidentes para triagem diaria.',
+      'Knowledge e Decisoes concentram o que ja foi consolidado e o que mudou de rumo.',
+    ]),
+    renderQuickLinks('Links rapidos', 'Atalhos para as areas mais usadas do vault.', [
+      `[[10 Projects/Projects|Projetos]]`,
+      `[[60 Followups/Followups|Pendencias]]`,
+      `[[50 Incidents/Incidents|Incidentes]]`,
+      `[[30 Knowledge/Knowledge|Conhecimento]]`,
+      `[[40 Decisions/Decisions|Decisoes]]`,
+    ]),
+    renderCallout('warning', 'Atencao agora', [
+      'Priorize pendencias com prazo proximo e incidentes ainda abertos.',
+      'Quando algo parecer relevante, abra a pagina do projeto para acessar historico, conhecimento e proximos passos.',
+    ]),
+    '## Radar rapido',
+    'Leia estas secoes primeiro para ter um panorama executivo do que mudou e do que esta em risco.',
+    '',
+    renderDataviewSection({
+      title: 'Pendencias com prazo mais proximo',
+      description: 'Mostra o que pode virar gargalo primeiro.',
+      sourceFolder: vaultFolders.followups,
+      whereClause: 'type = "followup" AND status != "resolved" AND status != "archived"',
+      sortField: 'follow_up_by',
+      sortDirection: 'ASC',
+      limit: 12,
+      columns: ['follow_up_by AS Prazo', 'project AS Projeto', 'importance AS Prioridade', 'status AS Estado'],
+    }),
+    renderDataviewSection({
+      title: 'Incidentes ativos',
+      description: 'Use esta visao para localizar problemas ainda sem encerramento.',
+      sourceFolder: vaultFolders.incidents,
+      whereClause: 'type = "incident" AND status != "resolved" AND status != "archived"',
+      sortField: 'occurred_at',
+      sortDirection: 'DESC',
+      limit: 12,
+      columns: ['occurred_at AS Quando', 'project AS Projeto', 'importance AS Prioridade', 'status AS Estado'],
+    }),
+    renderDataviewSection({
+      title: 'O que mudou recentemente',
+      description: 'Eventos novos para leitura rapida do contexto mais recente.',
+      sourceFolder: vaultFolders.inbox,
+      whereClause: 'type = "event"',
+      sortField: 'occurred_at',
+      sortDirection: 'DESC',
+      limit: 15,
+      columns: ['occurred_at AS Quando', 'project AS Projeto', 'importance AS Prioridade', 'status AS Estado'],
+    }),
+    renderQuickLinks('Navegacao por objetivo', 'Escolha o caminho conforme a pergunta do usuario.', [
+      `Ver estado dos projetos: [[10 Projects/Projects|Projetos]]`,
+      `Entender decisoes recentes: [[40 Decisions/Decisions|Decisoes]]`,
+      `Consultar conhecimento consolidado: [[30 Knowledge/Knowledge|Conhecimento]]`,
+      `Atacar pendencias abertas: [[60 Followups/Followups|Pendencias]]`,
+    ]),
+    renderDataviewSection({
+      title: 'Decisoes recentes',
+      description: 'Resumo rapido do que mudou de direcao ou padrao.',
+      sourceFolder: vaultFolders.decisions,
+      whereClause: 'type = "decision"',
+      sortField: 'occurred_at',
+      sortDirection: 'DESC',
+      limit: 10,
+      columns: ['occurred_at AS Quando', 'project AS Projeto', 'importance AS Prioridade', 'status AS Estado'],
+    }),
+  ].join('\n');
+}
+
+function renderProjectsPage() {
+  return [
+    renderFrontmatter({
+      id: 'projects-dashboard',
+      type: 'dashboard',
+      canonical: true,
+      tags: ['dashboard', 'projects'],
+    }),
+    '# Projetos',
+    '',
+    renderCallout('info', 'Visao de portfolio', [
+      'Cada pagina de projeto concentra contexto, saude operacional e navegacao para conhecimento, decisoes, incidentes e pendencias.',
+      'Use a tabela principal para descobrir o que e mais critico e as secoes abaixo para localizar onde existe atencao imediata.',
+    ]),
+    renderQuickLinks('Links rapidos', 'Comece pela listagem completa ou volte para o painel geral.', [
+      `[[00 Home/Home|Home]]`,
+      `[[50 Incidents/Incidents|Incidentes]]`,
+      `[[60 Followups/Followups|Pendencias]]`,
+    ]),
+    renderDataviewSection({
+      title: 'Todos os projetos',
+      description: 'Panorama geral com prioridade de leitura por criticidade e status.',
+      sourceFolder: vaultFolders.projects,
+      whereClause: 'type = "project_summary"',
+      sortField: 'criticality',
+      sortDirection: 'DESC',
+      limit: 100,
+      columns: ['file.link AS Projeto', 'criticality AS Criticidade', 'status AS Estado', 'area AS Area', 'owners AS Responsaveis'],
+    }),
+    '## Projetos com atencao agora',
+    'As duas secoes seguintes mostram os pontos de tensao mais imediatos sem precisar abrir cada projeto.',
+    '',
+    renderDataviewSection({
+      title: 'Incidentes abertos por projeto',
+      description: 'Lista de incidentes ainda ativos para triagem rapida.',
+      sourceFolder: vaultFolders.incidents,
+      whereClause: 'type = "incident" AND status != "resolved" AND status != "archived"',
+      sortField: 'occurred_at',
+      sortDirection: 'DESC',
+      limit: 15,
+      columns: ['project AS Projeto', 'importance AS Prioridade', 'status AS Estado'],
+    }),
+    renderDataviewSection({
+      title: 'Pendencias abertas por projeto',
+      description: 'Use esta visao para identificar follow-ups sem conclusao.',
+      sourceFolder: vaultFolders.followups,
+      whereClause: 'type = "followup" AND status != "resolved" AND status != "archived"',
+      sortField: 'follow_up_by',
+      sortDirection: 'ASC',
+      limit: 15,
+      columns: ['follow_up_by AS Prazo', 'project AS Projeto', 'importance AS Prioridade', 'status AS Estado'],
+    }),
+  ].join('\n');
+}
+
+function renderKnowledgePage() {
+  return [
+    renderFrontmatter({
+      id: 'knowledge-dashboard',
+      type: 'dashboard',
+      canonical: true,
+      tags: ['dashboard', 'knowledge'],
+    }),
+    '# Conhecimento',
+    '',
+    renderCallout('info', 'Conhecimento consolidado', [
+      'Aqui ficam notas canonicas que merecem consulta recorrente.',
+      'Quando quiser contexto de um projeto antes de agir, comece por esta area.',
+    ]),
+    renderQuickLinks('Links rapidos', 'Acesse rapidamente o contexto relacionado.', [
+      `[[00 Home/Home|Home]]`,
+      `[[10 Projects/Projects|Projetos]]`,
+      `[[40 Decisions/Decisions|Decisoes]]`,
+    ]),
+    renderDataviewSection({
+      title: 'Conhecimento recente',
+      description: 'Notas consolidadas mais novas para revisao rapida.',
+      sourceFolder: vaultFolders.knowledge,
+      whereClause: 'type = "knowledge" AND canonical = true',
+      sortField: 'occurred_at',
+      sortDirection: 'DESC',
+      limit: 30,
+      columns: ['occurred_at AS Quando', 'project AS Projeto', 'importance AS Prioridade', 'status AS Estado'],
+    }),
+    renderDataviewSection({
+      title: 'Conhecimento de maior prioridade',
+      description: 'Entradas de alto impacto para leitura antes de decidir ou executar.',
+      sourceFolder: vaultFolders.knowledge,
+      whereClause: 'type = "knowledge" AND canonical = true AND importance = "high"',
+      sortField: 'occurred_at',
+      sortDirection: 'DESC',
+      limit: 20,
+      columns: ['project AS Projeto', 'status AS Estado'],
+    }),
+  ].join('\n');
+}
+
+function renderDecisionsPage() {
+  return [
+    renderFrontmatter({
+      id: 'decisions-dashboard',
+      type: 'dashboard',
+      canonical: true,
+      tags: ['dashboard', 'decisions'],
+    }),
+    '# Decisoes',
+    '',
+    renderCallout('info', 'Registro de direcao', [
+      'Use esta area para entender o que foi decidido e qual impacto esperado cada decisao carrega.',
+    ]),
+    renderQuickLinks('Links rapidos', 'Volte para o painel geral ou navegue pelo contexto de projeto.', [
+      `[[00 Home/Home|Home]]`,
+      `[[10 Projects/Projects|Projetos]]`,
+      `[[30 Knowledge/Knowledge|Conhecimento]]`,
+    ]),
+    renderDataviewSection({
+      title: 'Decisoes recentes',
+      description: 'O que mudou de direcao recentemente.',
+      sourceFolder: vaultFolders.decisions,
+      whereClause: 'type = "decision"',
+      sortField: 'occurred_at',
+      sortDirection: 'DESC',
+      limit: 30,
+      columns: ['occurred_at AS Quando', 'project AS Projeto', 'importance AS Prioridade', 'status AS Estado'],
+    }),
+    renderDataviewSection({
+      title: 'Decisoes de alta importancia',
+      description: 'Mudancas com potencial maior de impacto operacional ou arquitetural.',
+      sourceFolder: vaultFolders.decisions,
+      whereClause: 'type = "decision" AND importance = "high"',
+      sortField: 'occurred_at',
+      sortDirection: 'DESC',
+      limit: 20,
+      columns: ['project AS Projeto', 'status AS Estado'],
+    }),
+  ].join('\n');
+}
+
+function renderIncidentsPage() {
+  return [
+    renderFrontmatter({
+      id: 'incidents-dashboard',
+      type: 'dashboard',
+      canonical: true,
+      tags: ['dashboard', 'incidents'],
+    }),
+    '# Incidentes',
+    '',
+    renderCallout('warning', 'Painel de incidentes', [
+      'Primeiro veja o que ainda esta aberto. O historico resolvido fica abaixo apenas para consulta e aprendizado.',
+    ]),
+    renderQuickLinks('Links rapidos', 'Atalhos para contexto relacionado.', [
+      `[[00 Home/Home|Home]]`,
+      `[[10 Projects/Projects|Projetos]]`,
+      `[[60 Followups/Followups|Pendencias]]`,
+    ]),
+    renderDataviewSection({
+      title: 'Incidentes abertos',
+      description: 'Lista principal para triagem e acompanhamento.',
+      sourceFolder: vaultFolders.incidents,
+      whereClause: 'type = "incident" AND status != "resolved" AND status != "archived"',
+      sortField: 'occurred_at',
+      sortDirection: 'DESC',
+      limit: 30,
+      columns: ['occurred_at AS Quando', 'project AS Projeto', 'importance AS Prioridade', 'status AS Estado'],
+    }),
+    renderDataviewSection({
+      title: 'Historico resolvido',
+      description: 'Consulte esta visao para entender o que ja foi encerrado e reaproveitar aprendizados.',
+      sourceFolder: vaultFolders.incidents,
+      whereClause: 'type = "incident" AND (status = "resolved" OR status = "archived")',
+      sortField: 'occurred_at',
+      sortDirection: 'DESC',
+      limit: 20,
+      columns: ['occurred_at AS Quando', 'project AS Projeto', 'importance AS Prioridade', 'status AS Estado'],
+    }),
+  ].join('\n');
+}
+
+function renderFollowupsPage() {
+  return [
+    renderFrontmatter({
+      id: 'followups-dashboard',
+      type: 'dashboard',
+      canonical: true,
+      tags: ['dashboard', 'followups'],
+    }),
+    '# Pendencias',
+    '',
+    renderCallout('warning', 'Fila de acompanhamento', [
+      'Aqui esta o que ainda precisa de acao. Comece pelos prazos mais proximos e depois revise o restante da fila.',
+    ]),
+    renderQuickLinks('Links rapidos', 'Navegue direto para o painel geral ou para a origem dos problemas.', [
+      `[[00 Home/Home|Home]]`,
+      `[[10 Projects/Projects|Projetos]]`,
+      `[[50 Incidents/Incidents|Incidentes]]`,
+    ]),
+    renderDataviewSection({
+      title: 'Pendencias vencendo primeiro',
+      description: 'Priorize por prazo para reduzir risco de esquecimento.',
+      sourceFolder: vaultFolders.followups,
+      whereClause: 'type = "followup" AND status != "resolved" AND status != "archived"',
+      sortField: 'follow_up_by',
+      sortDirection: 'ASC',
+      limit: 30,
+      columns: ['follow_up_by AS Prazo', 'project AS Projeto', 'importance AS Prioridade', 'status AS Estado'],
+    }),
+    renderDataviewSection({
+      title: 'Pendencias recentes',
+      description: 'Use esta visao para revisar follow-ups adicionados recentemente.',
+      sourceFolder: vaultFolders.followups,
+      whereClause: 'type = "followup"',
+      sortField: 'occurred_at',
+      sortDirection: 'DESC',
+      limit: 20,
+      columns: ['occurred_at AS Criado em', 'project AS Projeto', 'importance AS Prioridade', 'status AS Estado'],
+    }),
+  ].join('\n');
+}
+
+function renderProjectSummary(project) {
+  const projectPath = `${vaultFolders.projects}/${project.project_slug}`;
+  return [
+    renderFrontmatter({
+      id: `project:${project.project_slug}`,
+      type: 'project_summary',
+      canonical: true,
+      project: project.project_slug,
+      name: project.name || project.display_name || project.project_slug,
+      repo: project.repo_full_name || '',
+      criticality: project.criticality || 'medium',
+      status: project.status || 'active',
+      area: project.area || 'engineering',
+      owners: project.owners || [],
+      aliases: project.aliases || [],
+      tags: unique(['project_summary', project.project_slug, ...(project.default_tags || [])]),
+    }),
+    `# ${project.display_name || project.name || project.project_slug}`,
+    '',
+    renderCallout('info', 'Estado atual do projeto', [
+      renderMetadataList([
+        { label: 'Criticidade', value: renderCriticalityBadge(project.criticality || 'medium') },
+        { label: 'Status', value: renderStatusBadge(project.status || 'active') },
+        { label: 'Responsaveis', value: (project.owners || []).join(', ') || 'n/a' },
+        { label: 'Area', value: project.area || 'engineering' },
+        { label: 'Repo', value: project.repo_full_name || 'n/a' },
+        { label: 'Branch padrao', value: project.default_branch || 'main' },
+      ]),
+    ]),
+    renderQuickLinks('Onde olhar primeiro', 'Atalhos para navegar pelo contexto do projeto.', [
+      `[[#Ultimos eventos|Ultimos eventos]] para ver a linha do tempo mais recente`,
+      `[[#Conhecimento consolidado|Conhecimento consolidado]] para referencia reutilizavel`,
+      `[[#Decisoes recentes|Decisoes recentes]] para mudancas de rumo`,
+      `[[#Incidentes abertos|Incidentes abertos]] para problemas ativos`,
+      `[[#Pendencias abertas|Pendencias abertas]] para a fila de acompanhamento`,
+    ]),
+    '## Saude do projeto',
+    'Estas secoes ajudam a entender rapidamente o momento atual do projeto sem abrir varias notas em sequencia.',
+    '',
+    renderDataviewSection({
+      title: 'Ultimos eventos',
+      description: 'Linha do tempo recente do que aconteceu.',
+      sourceFolder: vaultFolders.inbox,
+      whereClause: 'project = this.project AND type = "event"',
+      sortField: 'occurred_at',
+      sortDirection: 'DESC',
+      limit: 12,
+      columns: ['occurred_at AS Quando', 'importance AS Prioridade', 'status AS Estado'],
+    }),
+    renderDataviewSection({
+      title: 'Conhecimento consolidado',
+      description: 'Notas canonicas para reuso e consulta antes de agir.',
+      sourceFolder: vaultFolders.knowledge,
+      whereClause: 'project = this.project AND canonical = true',
+      sortField: 'occurred_at',
+      sortDirection: 'DESC',
+      limit: 12,
+      columns: ['importance AS Prioridade', 'status AS Estado'],
+    }),
+    renderDataviewSection({
+      title: 'Decisoes recentes',
+      description: 'Mudancas relevantes de direcionamento ou padrao.',
+      sourceFolder: vaultFolders.decisions,
+      whereClause: 'project = this.project',
+      sortField: 'occurred_at',
+      sortDirection: 'DESC',
+      limit: 10,
+      columns: ['importance AS Prioridade', 'status AS Estado'],
+    }),
+    renderDataviewSection({
+      title: 'Incidentes abertos',
+      description: 'Problemas ainda sem conclusao para este projeto.',
+      sourceFolder: vaultFolders.incidents,
+      whereClause: 'project = this.project AND status != "resolved" AND status != "archived"',
+      sortField: 'occurred_at',
+      sortDirection: 'DESC',
+      limit: 10,
+      columns: ['importance AS Prioridade', 'status AS Estado'],
+    }),
+    renderDataviewSection({
+      title: 'Pendencias abertas',
+      description: 'Acoes pendentes que ainda precisam de acompanhamento.',
+      sourceFolder: vaultFolders.followups,
+      whereClause: 'project = this.project AND status != "resolved" AND status != "archived"',
+      sortField: 'follow_up_by',
+      sortDirection: 'ASC',
+      limit: 10,
+      columns: ['importance AS Prioridade', 'follow_up_by AS Prazo', 'status AS Estado'],
+    }),
+    renderCallout('tip', 'Como usar esta pagina', [
+      'Comece pelo estado atual para saber a criticidade e quem responde pelo projeto.',
+      'Depois use as secoes de saude para localizar eventos recentes, conhecimento reutilizavel e pontos de tensao ainda abertos.',
+    ]),
+  ].join('\n');
+}
+
+async function ensureVaultScaffolding(projects) {
+  const dirs = Object.values(vaultFolders).map((entry) => path.join(vaultPath, entry));
+  for (const dir of dirs) {
+    await ensureDir(dir);
+  }
+
+  await writeGeneratedPage(`${vaultFolders.home}/Home.md`, renderHomePage());
+  await writeGeneratedPage(`${vaultFolders.projects}/Projects.md`, renderProjectsPage());
+  await writeGeneratedPage(`${vaultFolders.knowledge}/Knowledge.md`, renderKnowledgePage());
+  await writeGeneratedPage(`${vaultFolders.decisions}/Decisions.md`, renderDecisionsPage());
+  await writeGeneratedPage(`${vaultFolders.incidents}/Incidents.md`, renderIncidentsPage());
+  await writeGeneratedPage(`${vaultFolders.followups}/Followups.md`, renderFollowupsPage());
+
+  for (const project of projects) {
+    await writeGeneratedPage(toRelativeVaultPath(projectSummaryPath(project)), renderProjectSummary(project));
   }
 }
 
@@ -540,23 +1159,30 @@ function renderCommitsSection(commits) {
 function buildFallbackAnalysis(event) {
   if (event.event_type === 'manual_note') {
     const summary = trimParagraph(event.raw_text, 'Manual note registered.');
+    const canonicalType = resolveCanonicalType(event);
     return {
       source: 'fallback',
       summary,
-      impact: 'Observacao manual registrada para consulta futura e vinculada ao contexto atual do repositório.',
-      risks: 'Sem analise de IA configurada. Validar depois se a nota exige follow-up tecnico.',
-      nextSteps: 'Revisar a nota e complementar com decisao, contexto ou link se necessario.',
+      impact:
+        canonicalType && canonicalType !== 'event'
+          ? `Registro manual com potencial de virar ${canonicalType} canonico para o projeto.`
+          : 'Observacao manual registrada para consulta futura e vinculada ao contexto atual do repositorio.',
+      risks: 'Sem analise de IA configurada. Validar se o registro exige follow-up, consolidacao ou decisao explicita.',
+      nextSteps:
+        canonicalType && canonicalType !== 'event'
+          ? `Consolidar a nota como ${canonicalType} e revisar proximos passos no vault.`
+          : 'Revisar a nota e complementar com decisao, contexto ou link se necessario.',
     };
   }
 
   const commitMessages = (event.commits || []).map((entry) => trimParagraph(entry.message, '')).filter(Boolean);
-  const topMessage = commitMessages[0] || 'Push registrado sem resumo de commit disponível.';
+  const topMessage = commitMessages[0] || 'Push registrado sem resumo de commit disponivel.';
   const filesChanged = Array.isArray(event.files) ? event.files.length : 0;
   return {
     source: 'fallback',
     summary: topMessage,
     impact: `Push registrado em ${event.branch || 'branch desconhecida'} com ${filesChanged} arquivo(s) alterado(s).`,
-    risks: 'Sem analise de IA configurada. Revisar possiveis regressões manualmente se a mudança for sensível.',
+    risks: 'Sem analise de IA configurada. Revisar possiveis regressoes manualmente se a mudanca for sensivel.',
     nextSteps: 'Usar a nota como base para continuidade e complementar contexto manual quando necessario.',
   };
 }
@@ -577,6 +1203,12 @@ function buildPromptPayload(event) {
           repo: event.repo || '',
           note: trimParagraph(event.raw_text, ''),
           head_sha: event.head_sha || '',
+          note_type: event.note_type || '',
+          importance: event.importance || '',
+          status: event.status || '',
+          follow_up_by: event.follow_up_by || '',
+          decision_flag: parseBoolean(event.decision_flag),
+          related_projects: parseList(event.related_projects),
         }
       : {
           type: event.event_type,
@@ -791,7 +1423,7 @@ async function persistAttachment(project, payload, eventDate) {
   const uniqueName = `${year}${month}${day}-${time}-${safeName}`;
   const inVault = attachment.size_bytes <= maxVaultAttachmentBytes;
   const targetDir = inVault
-    ? path.join(vaultPath, 'projects', project.project_slug, 'assets', year, month)
+    ? path.join(vaultPath, vaultFolders.assets, project.project_slug, year, month)
     : path.join(archivePath, project.project_slug, year, month);
   await ensureDir(targetDir);
   const targetPath = path.join(targetDir, uniqueName);
@@ -837,13 +1469,226 @@ function buildLinksSection(event) {
   return links.length > 0 ? links.join('\n') : '- none';
 }
 
-function renderPushNote(event, analysis, noteFrontmatter) {
+function renderAttachmentSection(event) {
+  const attachment = event.attachment;
+  const obsidianLink =
+    attachment?.mode === 'vault' && attachment.stored_path ? `[[${attachment.stored_path}]]` : '';
+  const obsidianEmbed =
+    attachment?.mode === 'vault' && attachment.stored_path ? `![[${attachment.stored_path}]]` : '';
+  return attachment
+    ? [
+        '## Anexo',
+        'Arquivo associado a esta nota para consulta direta no vault ou no arquivo tecnico.',
+        '',
+        renderMetadataList([
+          { label: 'Modo', value: attachment.mode },
+          { label: 'Nome original', value: attachment.file_name },
+          { label: 'Mime', value: attachment.mime_type },
+          { label: 'Tamanho (bytes)', value: attachment.size_bytes },
+          { label: 'SHA256', value: attachment.sha256 },
+          { label: 'Path', value: attachment.stored_path },
+          { label: 'Link tecnico', value: attachment.technical_link },
+          ...(obsidianLink ? [{ label: 'Link no Obsidian', value: obsidianLink }] : []),
+          ...(obsidianEmbed ? [{ label: 'Preview', value: obsidianEmbed }] : []),
+        ]),
+        '',
+      ]
+    : ['## Anexo', '- none', ''];
+}
+
+function resolveImportance(payload) {
+  const explicit = normalizeEnum(payload.importance, importanceLevels, '');
+  if (explicit) {
+    return explicit;
+  }
+  if (payload.kind === 'bug') {
+    return 'high';
+  }
+  if (payload.kind === 'resume' || payload.kind === 'article' || payload.event_type === 'github_push') {
+    return 'medium';
+  }
+  return 'low';
+}
+
+function resolveStatus(payload, canonicalType = '') {
+  const explicit = normalizeEnum(payload.status, statusValues, '');
+  if (explicit) {
+    return explicit;
+  }
+  if (canonicalType === 'incident' || canonicalType === 'followup') {
+    return 'open';
+  }
+  return 'active';
+}
+
+function resolveCanonicalType(payload) {
+  const explicit = normalizeEnum(payload.note_type, noteTypes, '');
+  if (explicit === 'knowledge' || explicit === 'decision' || explicit === 'incident') {
+    return explicit;
+  }
+  if (parseBoolean(payload.decision_flag)) {
+    return 'decision';
+  }
+  if (payload.kind === 'bug') {
+    return 'incident';
+  }
+  if (payload.kind === 'resume' || payload.kind === 'article') {
+    return 'knowledge';
+  }
+  return '';
+}
+
+function shouldCreateFollowup(payload, canonicalType) {
+  const explicitStatus = normalizeEnum(payload.status, statusValues, '');
+  if (explicitStatus === 'resolved' || explicitStatus === 'archived') {
+    return false;
+  }
+  if (String(payload.follow_up_by || '').trim()) {
+    return true;
+  }
+  return canonicalType === 'incident';
+}
+
+function buildNoteTitle(event, analysis, type) {
+  if (type === 'project_summary') {
+    return event.display_name;
+  }
+  if (type === 'incident') {
+    return trimParagraph(analysis.summary || event.raw_text, `${event.display_name} incidente`);
+  }
+  if (type === 'decision') {
+    return trimParagraph(analysis.summary || event.raw_text, `${event.display_name} decisao`);
+  }
+  if (type === 'knowledge') {
+    return trimParagraph(analysis.summary || event.raw_text, `${event.display_name} conhecimento`);
+  }
+  if (type === 'followup') {
+    return trimParagraph(`Follow-up ${analysis.summary || event.raw_text}`, `Follow-up ${event.display_name}`);
+  }
+  if (event.event_type === 'github_push') {
+    return trimParagraph(`${event.display_name} ${shortSha(event.head_sha)}`, `${event.display_name} push`);
+  }
+  return trimParagraph(analysis.summary || event.raw_text, `${event.display_name} event`);
+}
+
+function buildEventNoteFileName(eventDate, payload, analysis) {
+  const { year, month, day, time } = getDateParts(eventDate);
+  if (payload.event_type === 'github_push') {
+    return `${year}-${month}-${day}-${time}-push-${shortSha(payload.head_sha)}.md`;
+  }
+  const stem = sanitizeFileStem(analysis.summary || payload.raw_text || payload.kind, payload.kind || 'event');
+  return `${year}-${month}-${day}-${time}-${stem}.md`;
+}
+
+function buildCanonicalFileName(eventDate, payload, analysis, canonicalType) {
+  const { year, month, day, time } = getDateParts(eventDate);
+  const stem = sanitizeFileStem(analysis.summary || payload.raw_text || canonicalType, canonicalType);
+  return `${year}-${month}-${day}-${time}-${stem}.md`;
+}
+
+function buildRelatedEntries(...values) {
+  return unique(values.flat().map((entry) => String(entry || '').trim()).filter(Boolean));
+}
+
+function renderNavigationSection(paths) {
+  return renderQuickLinks('Navegacao rapida', 'Use estes links para saltar entre o contexto principal desta nota.', [
+    `${vaultLink(paths.projectSummaryPath, 'Resumo do projeto')}`,
+    `${vaultLink(`${vaultFolders.home}/Home`, 'Home')}`,
+    ...(paths.dailyPath ? [vaultLink(paths.dailyPath, 'Log diario')] : []),
+    ...(paths.canonicalPath ? [vaultLink(paths.canonicalPath, 'Nota canonica')] : []),
+    ...(paths.followupPath ? [vaultLink(paths.followupPath, 'Follow-up')] : []),
+  ]);
+}
+
+function renderEventOverview(event, noteFrontmatter) {
+  return renderCallout('abstract', 'Resumo do evento', [
+    trimParagraph(event.raw_text || '', 'Sem texto original registrado.'),
+    '',
+    renderMetadataList([
+      { label: 'Projeto', value: vaultLink(`${vaultFolders.projects}/${noteFrontmatter.project}`, event.display_name) },
+      { label: 'Origem', value: event.source || 'n/a' },
+      { label: 'Quando', value: noteFrontmatter.occurred_at || 'n/a' },
+      { label: 'Prioridade', value: renderImportanceBadge(noteFrontmatter.importance) },
+      { label: 'Status', value: renderStatusBadge(noteFrontmatter.status) },
+    ]),
+  ]);
+}
+
+function renderCanonicalOverview(event, noteFrontmatter, canonicalType) {
+  const typeLabels = {
+    knowledge: 'Conhecimento',
+    decision: 'Decisao',
+    incident: 'Incidente',
+  };
+  return renderCallout('abstract', 'Registro consolidado', [
+    trimParagraph(event.raw_text || '', 'Sem contexto original registrado.'),
+    '',
+    renderMetadataList([
+      { label: 'Projeto', value: vaultLink(`${vaultFolders.projects}/${noteFrontmatter.project}`, event.display_name) },
+      { label: 'Tipo', value: typeLabels[canonicalType] || canonicalType || 'n/a' },
+      { label: 'Prioridade', value: renderImportanceBadge(noteFrontmatter.importance) },
+      { label: 'Status', value: renderStatusBadge(noteFrontmatter.status) },
+    ]),
+  ]);
+}
+
+function renderFollowupOverview(event, noteFrontmatter) {
+  return renderCallout('warning', 'Acao pendente', [
+    'Esta nota representa algo que ainda exige acompanhamento.',
+    '',
+    renderMetadataList([
+      { label: 'Projeto', value: vaultLink(`${vaultFolders.projects}/${noteFrontmatter.project}`, event.display_name) },
+      { label: 'Prazo', value: noteFrontmatter.follow_up_by || 'n/a' },
+      { label: 'Prioridade', value: renderImportanceBadge(noteFrontmatter.importance) },
+      { label: 'Status', value: renderStatusBadge(noteFrontmatter.status) },
+    ]),
+  ]);
+}
+
+function renderEventNote(event, analysis, noteFrontmatter, paths) {
   const frontmatter = renderFrontmatter(noteFrontmatter);
   const diffstatLine = event.diffstat?.summary || 'No diffstat available.';
+  const manualSections =
+    event.event_type === 'manual_note'
+      ? [
+          '## Contexto original',
+          trimParagraph(event.raw_text, 'Sem texto informado.'),
+          '',
+          ...renderAttachmentSection(event),
+        ]
+      : [];
+  const pushSections =
+    event.event_type === 'github_push'
+      ? [
+          '## Arquivos alterados',
+          renderFilesSection(event.files),
+          '',
+          '## Resumo tecnico',
+          `- ${diffstatLine}`,
+          `- files_changed: ${event.diffstat?.files_changed ?? 0}`,
+          `- insertions: ${event.diffstat?.insertions ?? 0}`,
+          `- deletions: ${event.diffstat?.deletions ?? 0}`,
+          '',
+          '## Commits',
+          renderCommitsSection(event.commits),
+          '',
+          '## Links',
+          buildLinksSection(event),
+          '',
+        ]
+      : [
+          '## Contexto tecnico',
+          `- repo: ${event.repo || 'n/a'}`,
+          `- branch: ${event.branch || 'n/a'}`,
+          `- head_sha: ${event.head_sha || 'n/a'}`,
+          '',
+        ];
   return [
     frontmatter,
-    `# ${event.display_name} - ${shortSha(event.head_sha)}`,
+    `# ${buildNoteTitle(event, analysis, 'event')}`,
     '',
+    renderEventOverview(event, noteFrontmatter),
+    renderNavigationSection(paths),
     '## Resumo',
     analysis.summary,
     '',
@@ -853,73 +1698,76 @@ function renderPushNote(event, analysis, noteFrontmatter) {
     '## Riscos',
     analysis.risks,
     '',
-    '## Próximos passos',
+    '## Proximos passos',
     analysis.nextSteps,
     '',
-    '## Arquivos alterados',
-    renderFilesSection(event.files),
-    '',
-    '## Diffstat',
-    `- ${diffstatLine}`,
-    `- files_changed: ${event.diffstat?.files_changed ?? 0}`,
-    `- insertions: ${event.diffstat?.insertions ?? 0}`,
-    `- deletions: ${event.diffstat?.deletions ?? 0}`,
-    '',
-    '## Commits',
-    renderCommitsSection(event.commits),
-    '',
-    '## Links',
-    buildLinksSection(event),
+    ...manualSections,
+    ...pushSections,
+    '## Metadados tecnicos',
+    `- event_type: ${event.event_type}`,
+    `- source: ${event.source || 'n/a'}`,
+    `- importance: ${noteFrontmatter.importance}`,
+    `- status: ${noteFrontmatter.status}`,
     '',
   ].join('\n');
 }
 
-function renderManualNote(event, analysis, noteFrontmatter) {
+function renderCanonicalNote(event, analysis, noteFrontmatter, paths, canonicalType) {
   const frontmatter = renderFrontmatter(noteFrontmatter);
-  const attachment = event.attachment;
-  const obsidianLink =
-    attachment?.mode === 'vault' && attachment.stored_path ? `[[${attachment.stored_path}]]` : '';
-  const obsidianEmbed =
-    attachment?.mode === 'vault' && attachment.stored_path ? `![[${attachment.stored_path}]]` : '';
-  const attachmentSection = attachment
-    ? [
-        '## Attachment',
-        `- mode: ${attachment.mode}`,
-        `- original_name: ${attachment.file_name}`,
-        `- mime: ${attachment.mime_type}`,
-        `- size_bytes: ${attachment.size_bytes}`,
-        `- sha256: ${attachment.sha256}`,
-        `- path: ${attachment.stored_path}`,
-        `- technical_link: ${attachment.technical_link}`,
-        ...(obsidianLink ? [`- obsidian_link: ${obsidianLink}`] : []),
-        ...(obsidianEmbed ? [`- obsidian_embed: ${obsidianEmbed}`] : []),
-        '',
-      ]
-    : ['## Attachment', '- none', ''];
   return [
     frontmatter,
-    `# ${event.display_name} - manual note`,
+    `# ${buildNoteTitle(event, analysis, canonicalType)}`,
     '',
-    '## Observação original',
-    trimParagraph(event.raw_text, 'Sem texto informado.'),
-    '',
-    '## Resumo estruturado',
+    renderCanonicalOverview(event, noteFrontmatter, canonicalType),
+    renderNavigationSection(paths),
+    '## Sintese',
     analysis.summary,
     '',
     '## Impacto',
     analysis.impact,
     '',
-    '## Riscos',
+    canonicalType === 'decision' ? '## Contexto da decisao' : '## Contexto',
+    event.event_type === 'manual_note'
+      ? trimParagraph(event.raw_text, 'Sem contexto manual informado.')
+      : `${event.display_name} ${shortSha(event.head_sha)} em ${event.branch || 'branch desconhecida'}.`,
+    '',
+    canonicalType === 'incident' ? '## Riscos e prevencao' : '## Riscos',
     analysis.risks,
     '',
-    '## Próximos passos',
+    canonicalType === 'decision' ? '## Proximos passos / impacto esperado' : '## Proximos passos',
     analysis.nextSteps,
     '',
-    ...attachmentSection,
-    '## Contexto Git',
-    `- repo: ${event.repo || 'n/a'}`,
-    `- branch: ${event.branch || 'n/a'}`,
-    `- head_sha: ${event.head_sha || 'n/a'}`,
+    ...(event.event_type === 'manual_note' ? renderAttachmentSection(event) : []),
+    '## Rastreabilidade',
+    `- event_note: ${vaultLink(paths.eventPath, 'Event Note')}`,
+    `- project: ${vaultLink(paths.projectSummaryPath, 'Resumo do projeto')}`,
+    ...(paths.followupPath ? [`- followup: ${vaultLink(paths.followupPath, 'Follow-up')}`] : []),
+    '',
+  ].join('\n');
+}
+
+function renderFollowupNote(event, analysis, noteFrontmatter, paths) {
+  const frontmatter = renderFrontmatter(noteFrontmatter);
+  return [
+    frontmatter,
+    `# ${buildNoteTitle(event, analysis, 'followup')}`,
+    '',
+    renderFollowupOverview(event, noteFrontmatter),
+    renderNavigationSection(paths),
+    '## O que precisa ser feito',
+    analysis.nextSteps,
+    '',
+    '## Por que isso importa',
+    analysis.summary,
+    '',
+    '## Risco de nao fazer',
+    analysis.risks,
+    '',
+    '## Links relacionados',
+    `- prazo: ${noteFrontmatter.follow_up_by || 'n/a'}`,
+    `- origem: ${vaultLink(paths.eventPath, 'Event Note')}`,
+    `- projeto: ${vaultLink(paths.projectSummaryPath, 'Resumo do projeto')}`,
+    ...(paths.canonicalPath ? [`- nota canonica: ${vaultLink(paths.canonicalPath, 'Canonical Note')}`] : []),
     '',
   ].join('\n');
 }
@@ -934,7 +1782,7 @@ async function readFileIfExists(targetPath) {
 
 async function upsertDailyNote(project, event, analysis, noteRelativePath, eventDate) {
   const { year, month, day, time } = getDateParts(eventDate);
-  const dailyPath = path.join(vaultPath, project.notes_path, year, month, `${year}-${month}-${day}-daily.md`);
+  const dailyPath = path.join(vaultPath, vaultFolders.inbox, 'Daily', project.project_slug, year, month, `${year}-${month}-${day}.md`);
   const eventMarker = `<!-- event:${event.event_id} -->`;
   const existing = await readFileIfExists(dailyPath);
   if (existing.includes(eventMarker)) {
@@ -948,7 +1796,10 @@ async function upsertDailyNote(project, event, analysis, noteRelativePath, event
         id: `daily:${project.project_slug}:${year}-${month}-${day}`,
         type: 'daily',
         project: project.project_slug,
-        event_at: `${year}-${month}-${day}T00:00:00-03:00`,
+        occurred_at: `${year}-${month}-${day}T00:00:00-03:00`,
+        canonical: false,
+        status: 'active',
+        importance: project.criticality || 'medium',
         tags: ['daily', project.project_slug],
       }),
       `# ${project.display_name} - ${year}-${month}-${day}`,
@@ -958,200 +1809,207 @@ async function upsertDailyNote(project, event, analysis, noteRelativePath, event
     ].join('\n');
 
   let entry = '';
-  if (event.event_type === 'manual_note') {
-    const manualLabel = noteRelativePath ? `[manual](${path.basename(noteRelativePath)})` : 'manual';
-    const attachmentLines = event.attachment
-      ? [
-          `- attachment_mode: ${event.attachment.mode}`,
-          `- attachment_path: ${event.attachment.stored_path}`,
-          `- attachment_size: ${event.attachment.size_bytes}`,
-          `- attachment_sha256: ${event.attachment.sha256}`,
-        ]
-      : ['- attachment_mode: none'];
-    entry = [
-      eventMarker,
-      `### ${time} ${manualLabel}`,
-      '',
-      '#### Resumo',
-      analysis.summary,
-      '',
-      '#### Observação original',
-      trimParagraph(event.raw_text, 'Sem texto informado.'),
-      '',
-      '#### Contexto',
-      `- branch: ${event.branch || 'n/a'}`,
-      `- head_sha: ${event.head_sha || 'n/a'}`,
-      ...attachmentLines,
-      '',
-    ].join('\n');
-  } else {
-    entry = [
-      eventMarker,
-      `### ${time} push \`${shortSha(event.head_sha)}\``,
-      '',
-      `- branch: ${event.branch || 'n/a'}`,
-      `- author: ${event.source_actor || 'n/a'}`,
-      `- commits: ${Array.isArray(event.commits) ? event.commits.length : 0}`,
-      `- files_changed: ${Number(event?.diffstat?.files_changed) || (Array.isArray(event.files) ? event.files.length : 0)}`,
-      '',
-      '#### Resumo',
-      analysis.summary,
-      '',
-      '#### Impacto',
-      analysis.impact,
-      '',
-      '#### Riscos',
-      analysis.risks,
-      '',
-      '#### Próximos passos',
-      analysis.nextSteps,
-      '',
-      '#### Arquivos alterados',
-      renderFilesSection(event.files),
-      '',
-      '#### Commits',
-      renderCommitsSection(event.commits),
-      '',
-      '#### Links',
-      buildLinksSection(event),
-      '',
-    ].join('\n');
-  }
+  entry = [
+    eventMarker,
+    `### ${time} ${vaultLink(noteRelativePath, buildNoteTitle(event, analysis, 'event'))}`,
+    '',
+    `- type: ${event.event_type}`,
+    `- importance: ${resolveImportance(event)}`,
+    `- status: ${resolveStatus(event, resolveCanonicalType(event))}`,
+    '',
+    analysis.summary,
+    '',
+  ].join('\n');
 
   await ensureDir(path.dirname(dailyPath));
   await fs.writeFile(dailyPath, `${header}${header.endsWith('\n') ? '' : '\n'}${entry}`, 'utf8');
   return dailyPath;
 }
 
-async function updateProjectIndex(project) {
-  const projectRoot = path.join(vaultPath, project.notes_path);
-  await ensureDir(projectRoot);
-  const entries = [];
-
-  async function walk(dir) {
-    const children = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
-    for (const child of children) {
-      const target = path.join(dir, child.name);
-      if (child.isDirectory()) {
-        await walk(target);
-        continue;
-      }
-      if (!child.name.endsWith('.md') || child.name === 'index.md') {
-        continue;
-      }
-      const body = await readFileIfExists(target);
-      const match = body.match(/^event_at:\s+"?([^"\n]+)"?/m);
-      entries.push({
-        relativePath: toRelativeVaultPath(target),
-        fileName: child.name,
-        eventAt: match?.[1] || child.name.slice(0, 10),
-      });
-    }
-  }
-
-  await walk(projectRoot);
-  entries.sort((left, right) => String(right.eventAt).localeCompare(String(left.eventAt)));
-
-  const monthPrefix = (() => {
-    const { year, month } = getDateParts(new Date());
-    return `${year}-${month}`;
-  })();
-  const monthCount = entries.filter((entry) => entry.fileName.startsWith(monthPrefix)).length;
-  const indexPath = path.join(projectRoot, 'index.md');
-  const content = [
-    renderFrontmatter({
-      id: `index:${project.project_slug}`,
-      type: 'project_index',
-      project: project.project_slug,
-      tags: ['project-index', project.project_slug],
-    }),
-    `# ${project.display_name}`,
-    '',
-    `- repository: ${project.repo_full_name || 'n/a'}`,
-    `- default_branch: ${project.default_branch}`,
-    `- total_notes: ${entries.length}`,
-    `- current_month_notes: ${monthCount}`,
-    '',
-    '## Latest Events',
-    ...(entries.slice(0, 20).map((entry) => `- [${entry.fileName}](${path.basename(entry.relativePath)})`) || ['- none']),
-    '',
-  ].join('\n');
-  await fs.writeFile(indexPath, content, 'utf8');
-  return indexPath;
-}
-
-async function persistEvent(project, payload, analysis) {
+async function persistEvent(project, payload, analysis, allProjects) {
   const eventDate = parseDate(payload.triggered_at);
-  const { year, month, day, time } = getDateParts(eventDate);
+  const { year, month } = getDateParts(eventDate);
   const persistedAttachment = await persistAttachment(project, payload, eventDate);
+  const canonicalType = resolveCanonicalType(payload);
+  const importance = resolveImportance(payload);
+  const status = resolveStatus(payload, canonicalType);
   const event =
-    payload.event_type === 'manual_note'
-      ? {
-          ...payload,
-          display_name: project.display_name,
-          attachment: persistedAttachment,
-        }
-      : {
-          ...payload,
-          display_name: project.display_name,
-          files: Array.isArray(payload.files)
-            ? payload.files.map((entry) => ({
-                path: String(entry.path || ''),
-                status: String(entry.status || 'M'),
-              }))
-            : [],
-          commits: Array.isArray(payload.commits) ? payload.commits : [],
-        };
-  const isManual = payload.event_type === 'manual_note';
+    {
+      ...payload,
+      display_name: project.display_name,
+      attachment: persistedAttachment,
+      files: Array.isArray(payload.files)
+        ? payload.files.map((entry) => ({
+            path: String(entry.path || ''),
+            status: String(entry.status || 'M'),
+          }))
+        : [],
+      commits: Array.isArray(payload.commits) ? payload.commits : [],
+      importance,
+      status,
+    };
 
-  let noteRelativePath = '';
-  if (isManual) {
-    const noteFileName = `${year}-${month}-${day}-manual-${time}.md`;
-    const notePath = path.join(vaultPath, project.notes_path, year, month, noteFileName);
-    noteRelativePath = toRelativeVaultPath(notePath);
-    await ensureDir(path.dirname(notePath));
+  const eventDir = path.join(vaultPath, vaultFolders.inbox, project.project_slug, year, month);
+  await ensureDir(eventDir);
+  const eventPath = path.join(eventDir, buildEventNoteFileName(eventDate, payload, analysis));
+  const eventRelativePath = toRelativeVaultPath(eventPath);
+  const projectPath = toRelativeVaultPath(projectSummaryPath(project));
 
-    const tags = unique([
-      ...(project.default_tags || []),
-      ...(Array.isArray(payload.tags) ? payload.tags : []),
-      'manual-note',
-    ]);
-    const commitsCount = Array.isArray(payload.commits) ? payload.commits.length : 0;
-    const filesChanged = Number(payload?.diffstat?.files_changed) || (Array.isArray(payload.files) ? payload.files.length : 0);
-    const insertions = Number(payload?.diffstat?.insertions) || 0;
-    const deletions = Number(payload?.diffstat?.deletions) || 0;
-    const noteFrontmatter = {
-      id: payload.event_id,
-      type: 'manual_note',
-      kind: payload.kind || 'manual_note',
+  const shouldCreateCanonical = Boolean(canonicalType);
+  const canonicalDir = shouldCreateCanonical ? path.join(vaultPath, folderForCanonicalType(canonicalType), project.project_slug, year, month) : '';
+  if (canonicalDir) {
+    await ensureDir(canonicalDir);
+  }
+  const canonicalPath = shouldCreateCanonical
+    ? path.join(canonicalDir, buildCanonicalFileName(eventDate, payload, analysis, canonicalType))
+    : '';
+  const canonicalRelativePath = canonicalPath ? toRelativeVaultPath(canonicalPath) : '';
+
+  const shouldTrackFollowup = shouldCreateFollowup(payload, canonicalType);
+  const followupDir = shouldTrackFollowup ? path.join(vaultPath, vaultFolders.followups, project.project_slug, year, month) : '';
+  if (followupDir) {
+    await ensureDir(followupDir);
+  }
+  const followupPath = shouldTrackFollowup
+    ? path.join(followupDir, buildCanonicalFileName(eventDate, payload, analysis, 'followup'))
+    : '';
+  const followupRelativePath = followupPath ? toRelativeVaultPath(followupPath) : '';
+
+  const relatedProjects = unique([project.project_slug, ...parseList(payload.related_projects)]);
+  const relatedEntries = buildRelatedEntries(projectPath, canonicalRelativePath, followupRelativePath, payload.related);
+  const baseTags = unique([
+    ...(project.default_tags || []),
+    ...(Array.isArray(payload.tags) ? payload.tags : []),
+    payload.event_type,
+    payload.kind || '',
+    project.project_slug,
+  ]);
+  const filesChanged = Number(payload?.diffstat?.files_changed) || (Array.isArray(payload.files) ? payload.files.length : 0);
+  const commitsCount = Array.isArray(payload.commits) ? payload.commits.length : 0;
+  const insertions = Number(payload?.diffstat?.insertions) || 0;
+  const deletions = Number(payload?.diffstat?.deletions) || 0;
+
+  const eventFrontmatter = {
+    id: payload.event_id,
+    type: 'event',
+    canonical: false,
+    project: project.project_slug,
+    source: payload.source || 'n8n',
+    occurred_at: eventDate.toISOString(),
+    importance,
+    status,
+    tags: baseTags,
+    related: relatedEntries,
+    related_projects: relatedProjects,
+    event_type: payload.event_type,
+    kind: payload.kind || (payload.event_type === 'github_push' ? 'push' : 'manual_note'),
+    note_type: canonicalType || 'event',
+    repo: payload.repo || project.repo_full_name || '',
+    branch: payload.branch || project.default_branch,
+    head_sha: payload.head_sha || '',
+    author: payload.source_actor || '',
+    analysis_source: analysis.source,
+    semantic_text_version: semanticTextVersion,
+    semantic_text: buildCanonicalText(event, analysis),
+    commits_count: commitsCount,
+    files_changed: filesChanged,
+    insertions,
+    deletions,
+    attachment_mode: persistedAttachment?.mode || 'none',
+    attachment_path: persistedAttachment?.stored_path || '',
+    attachment_sha256: persistedAttachment?.sha256 || '',
+    attachment_size_bytes: persistedAttachment?.size_bytes || 0,
+    follow_up_by: String(payload.follow_up_by || '').trim(),
+    promoted_to: canonicalType || '',
+  };
+
+  await fs.writeFile(
+    eventPath,
+    renderEventNote(event, analysis, eventFrontmatter, {
+      projectSummaryPath: projectPath,
+      eventPath: eventRelativePath,
+      canonicalPath: canonicalRelativePath,
+      followupPath: followupRelativePath,
+    }),
+    'utf8',
+  );
+
+  let canonicalWritten = false;
+  if (canonicalPath) {
+    const canonicalFrontmatter = {
+      id: `${payload.event_id}:${canonicalType}`,
+      type: canonicalType,
+      canonical: true,
       project: project.project_slug,
+      source: payload.source || 'n8n',
+      occurred_at: eventDate.toISOString(),
+      importance,
+      status,
+      tags: unique([...baseTags, canonicalType]),
+      related: buildRelatedEntries(eventRelativePath, projectPath, followupRelativePath),
+      related_projects: relatedProjects,
       repo: payload.repo || project.repo_full_name || '',
       branch: payload.branch || project.default_branch,
-      event_at: eventDate.toISOString(),
-      source: payload.source || 'n8n',
-      head_sha: payload.head_sha || '',
-      author: payload.source_actor || '',
-      is_manual: true,
-      commits_count: commitsCount,
-      files_changed: filesChanged,
-      insertions,
-      deletions,
-      tags,
-      semantic_text_version: semanticTextVersion,
-      analysis_source: analysis.source,
-      attachment_mode: persistedAttachment?.mode || 'none',
-      attachment_path: persistedAttachment?.stored_path || '',
-      attachment_sha256: persistedAttachment?.sha256 || '',
-      attachment_size_bytes: persistedAttachment?.size_bytes || 0,
+      origin_event_id: payload.event_id,
+      origin_event_path: eventRelativePath,
+      follow_up_by: String(payload.follow_up_by || '').trim(),
+      decision_flag: parseBoolean(payload.decision_flag),
     };
-    const content = renderManualNote(event, analysis, noteFrontmatter);
-    await fs.writeFile(notePath, content, 'utf8');
+    await fs.writeFile(
+      canonicalPath,
+      renderCanonicalNote(
+        event,
+        analysis,
+        canonicalFrontmatter,
+        {
+          projectSummaryPath: projectPath,
+          eventPath: eventRelativePath,
+          canonicalPath: canonicalRelativePath,
+          followupPath: followupRelativePath,
+        },
+        canonicalType,
+      ),
+      'utf8',
+    );
+    canonicalWritten = true;
   }
 
-  const dailyPath = await upsertDailyNote(project, event, analysis, noteRelativePath, eventDate);
-  const indexPath = await updateProjectIndex(project);
+  let followupWritten = false;
+  if (followupPath) {
+    const followupFrontmatter = {
+      id: `${payload.event_id}:followup`,
+      type: 'followup',
+      canonical: false,
+      project: project.project_slug,
+      source: payload.source || 'n8n',
+      occurred_at: eventDate.toISOString(),
+      importance,
+      status: resolveStatus({ ...payload, status: payload.status || 'open' }, 'followup'),
+      tags: unique([...baseTags, 'followup']),
+      related: buildRelatedEntries(eventRelativePath, canonicalRelativePath, projectPath),
+      related_projects: relatedProjects,
+      follow_up_by: String(payload.follow_up_by || '').trim(),
+      origin_event_id: payload.event_id,
+      origin_event_path: eventRelativePath,
+    };
+    await fs.writeFile(
+      followupPath,
+      renderFollowupNote(event, analysis, followupFrontmatter, {
+        projectSummaryPath: projectPath,
+        eventPath: eventRelativePath,
+        canonicalPath: canonicalRelativePath,
+        followupPath: followupRelativePath,
+      }),
+      'utf8',
+    );
+    followupWritten = true;
+  }
 
-  let commitMessage = `kb: ${project.project_slug} ${payload.event_type} ${payload.event_type === 'manual_note' ? time : shortSha(payload.head_sha)}`;
+  const dailyPath = await upsertDailyNote(project, event, analysis, eventRelativePath, eventDate);
+  await ensureVaultScaffolding(allProjects);
+
+  const eventToken = payload.event_type === 'manual_note' ? sanitizeFileStem(payload.kind || 'manual') : shortSha(payload.head_sha);
+  let commitMessage = `kb: ${project.project_slug} ${payload.event_type} ${eventToken}`;
   let commitResult = { ok: false };
   let pushed = false;
   let pushMessage = 'disabled';
@@ -1190,11 +2048,16 @@ async function persistEvent(project, payload, analysis) {
     eventType: payload.event_type,
     project: project.project_slug,
     kind: payload.kind || 'manual_note',
-    notePath: isManual ? noteRelativePath : toRelativeVaultPath(dailyPath),
+    notePath: eventRelativePath,
     attachmentMode: persistedAttachment?.mode || 'none',
     attachmentPath: persistedAttachment?.stored_path || '',
     dailyPath: toRelativeVaultPath(dailyPath),
-    indexPath: toRelativeVaultPath(indexPath),
+    indexPath: projectPath,
+    projectPath,
+    canonicalPath: canonicalRelativePath,
+    followupPath: followupRelativePath,
+    canonicalCreated: canonicalWritten,
+    followupCreated: followupWritten,
     commitCreated: commitResult.ok,
     commitMessage,
     pushAttempted: gitBatchMode ? false : enableGitPush,
@@ -1308,8 +2171,15 @@ function normalizePayloadAndAuth(input, projects) {
   payload.triggered_at = String(payload.triggered_at || new Date().toISOString()).trim();
   payload.repo = String(payload.repo || '').trim();
   payload.branch = String(payload.branch || '').trim();
-  payload.kind = slugify(String(payload.kind || 'manual_note').replace(/_/g, '-')).replace(/-/g, '_') || 'manual_note';
+  payload.kind = normalizeEnum(payload.kind || 'manual_note', manualNoteKinds, 'manual_note');
+  payload.note_type = normalizeEnum(payload.note_type, noteTypes, '');
+  payload.importance = normalizeEnum(payload.importance, importanceLevels, '');
+  payload.status = normalizeEnum(payload.status, statusValues, '');
+  payload.follow_up_by = String(payload.follow_up_by || '').trim();
+  payload.decision_flag = parseBoolean(payload.decision_flag);
   payload.tags = parseTags(payload.tags || payload.tags_json || payload.tags_csv);
+  payload.related_projects = parseList(payload.related_projects || payload.related_projects_json || payload.related_projects_csv);
+  payload.related = parseList(payload.related);
   payload.attachment = parseAttachmentFromInput(payload, binaries);
 
   if (!payload.event_type || !payload.event_id) {
@@ -1320,7 +2190,7 @@ function normalizePayloadAndAuth(input, projects) {
     if (!payload.raw_text) {
       throw new Error('manual_note_without_text');
     }
-    if (!['manual_note', 'bug', 'resume', 'article', 'daily'].includes(payload.kind)) {
+    if (!manualNoteKinds.has(payload.kind)) {
       throw new Error('invalid_manual_note_kind');
     }
   }
@@ -1371,8 +2241,11 @@ async function main() {
 
   const { payload, project } = normalized;
   await ensureVaultRepository();
+  const allProjects = unique(
+    [...projects, project].map((entry) => JSON.stringify(entry)),
+  ).map((entry) => JSON.parse(entry));
   const analysis = await buildAnalysis(payload);
-  const result = await persistEvent(project, payload, analysis);
+  const result = await persistEvent(project, payload, analysis, allProjects);
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }
 
