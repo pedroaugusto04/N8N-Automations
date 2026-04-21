@@ -57,16 +57,18 @@ function runKbInteractive(args, input, env = {}) {
   });
 }
 
-test('kb sends multipart payload with text and attachment', async () => {
+test('kb sends json payload with text and attachment', async () => {
   const requests = [];
   const server = http.createServer((req, res) => {
     const chunks = [];
     req.on('data', (chunk) => chunks.push(chunk));
     req.on('end', () => {
-      const raw = Buffer.concat(chunks).toString('latin1');
+      const raw = Buffer.concat(chunks).toString('utf8');
+      const parsed = JSON.parse(raw);
       requests.push({
         headers: req.headers,
         body: raw,
+        json: parsed,
       });
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(
@@ -104,15 +106,20 @@ test('kb sends multipart payload with text and attachment', async () => {
   server.close();
 
   assert.equal(result.code, 0, result.stderr);
-  assert.match(result.stdout, /"ok":true/);
+  assert.match(result.stdout, /kb: nota enviada com sucesso\./);
+  assert.match(result.stdout, /project: n8n-automations/);
+  assert.match(result.stdout, /kind: bug/);
+  assert.match(result.stdout, /note: projects\/n8n-automations\/2026\/04\/note\.md/);
+  assert.match(result.stdout, /attachment: projects\/n8n-automations\/assets\/2026\/04\/sample\.txt \(vault\)/);
   assert.equal(requests.length, 1);
   assert.equal(requests[0].headers['x-kb-secret'], 'test-secret');
-  assert.match(String(requests[0].headers['content-type'] || ''), /^multipart\/form-data; boundary=/);
-  assert.match(requests[0].body, /name="raw_text"/);
-  assert.match(requests[0].body, /fix de timeout no webhook/);
-  assert.match(requests[0].body, /name="kind"/);
-  assert.match(requests[0].body, /\r\nbug\r\n/);
-  assert.match(requests[0].body, /name="attachment"; filename="sample\.txt"/);
+  assert.match(String(requests[0].headers['content-type'] || ''), /^application\/json\b/);
+  assert.equal(requests[0].json.raw_text, 'fix de timeout no webhook');
+  assert.equal(requests[0].json.kind, 'bug');
+  assert.equal(requests[0].json.project_slug, 'n8n-automations');
+  assert.equal(requests[0].json.attachment.file_name, 'sample.txt');
+  assert.equal(requests[0].json.attachment.mime_type, 'text/plain');
+  assert.equal(requests[0].json.attachment.data_b64, Buffer.from('sample body', 'utf8').toString('base64'));
 });
 
 test('kb asks for missing kind and project one by one with numbered choices', async () => {
@@ -122,9 +129,11 @@ test('kb asks for missing kind and project one by one with numbered choices', as
     req.on('data', (chunk) => chunks.push(chunk));
     req.on('end', () => {
       const raw = Buffer.concat(chunks).toString('latin1');
+      const parsed = JSON.parse(raw);
       requests.push({
         headers: req.headers,
         body: raw,
+        json: parsed,
       });
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(
@@ -164,8 +173,12 @@ test('kb asks for missing kind and project one by one with numbered choices', as
   assert.match(result.stderr, /2\) inbox - projeto padrao configurado/);
   assert.match(result.stderr, /3\) Fe-Connect \(fe-connect\)/);
   assert.equal(requests.length, 1);
-  assert.match(requests[0].body, /name="kind"/);
-  assert.match(requests[0].body, /\r\nbug\r\n/);
-  assert.match(requests[0].body, /name="project_slug"/);
-  assert.match(requests[0].body, /\r\nfe-connect\r\n/);
+  assert.match(String(requests[0].headers['content-type'] || ''), /^application\/json\b/);
+  assert.equal(requests[0].json.event_type, 'manual_note');
+  assert.equal(requests[0].json.kind, 'bug');
+  assert.equal(requests[0].json.project_slug, 'fe-connect');
+  assert.equal(requests[0].json.raw_text, 'fix de timeout no webhook');
+  assert.match(result.stdout, /kb: nota enviada com sucesso\./);
+  assert.match(result.stdout, /project: n8n-automations/);
+  assert.match(result.stdout, /kind: bug/);
 });

@@ -1174,7 +1174,7 @@ function parseAttachmentFromInput(payload, binaries) {
   const attachmentMeta = payload?.attachment && typeof payload.attachment === 'object' ? payload.attachment : {};
   const binaryEntries = binaries && typeof binaries === 'object' ? Object.entries(binaries) : [];
   const primaryBinary = binaryEntries.length > 0 ? binaryEntries[0][1] : null;
-  const dataB64 = String(primaryBinary?.data || '').trim();
+  const dataB64 = String(attachmentMeta.data_b64 || primaryBinary?.data || '').trim();
   const fileName = String(
     payload.attachment_name ||
       attachmentMeta.file_name ||

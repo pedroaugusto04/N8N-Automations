@@ -213,6 +213,124 @@ normalize_tags_json() {
   printf '[%s]' "$out"
 }
 
+print_response_summary() {
+  local response_file="$1"
+
+  node -e '
+const fs = require("fs");
+const responseFile = process.argv[1];
+let raw = "";
+try {
+  raw = fs.readFileSync(responseFile, "utf8");
+} catch {}
+const trimmed = String(raw || "").trim();
+if (!trimmed) {
+  console.log("kb: enviado com sucesso, mas o webhook nao retornou corpo de resposta.");
+  process.exit(0);
+}
+
+let parsed;
+try {
+  parsed = JSON.parse(trimmed);
+} catch {
+  process.stdout.write(trimmed.endsWith("\n") ? trimmed : `${trimmed}\n`);
+  process.exit(0);
+}
+
+if (parsed && typeof parsed === "object") {
+  const ok = parsed.ok;
+  const message = String(parsed.message || "").trim();
+  const project = String(parsed.project || parsed.project_slug || "").trim();
+  const kind = String(parsed.kind || "").trim();
+  const notePath = String(parsed.notePath || parsed.note_path || parsed.noteRelativePath || "").trim();
+  const attachmentPath = String(parsed.attachmentPath || parsed.attachment_path || "").trim();
+  const attachmentMode = String(parsed.attachmentMode || parsed.attachment_mode || "").trim();
+  const pushStatus = String(parsed.pushStatus || parsed.push_status || "").trim();
+
+  if (ok === false) {
+    console.log(`kb: falha${message ? ` - ${message}` : ""}`);
+  } else {
+    console.log("kb: nota enviada com sucesso.");
+  }
+  if (project) console.log(`project: ${project}`);
+  if (kind) console.log(`kind: ${kind}`);
+  if (notePath) console.log(`note: ${notePath}`);
+  if (attachmentPath) {
+    console.log(`attachment: ${attachmentPath}${attachmentMode ? ` (${attachmentMode})` : ""}`);
+  }
+  if (pushStatus) console.log(`push: ${pushStatus}`);
+  if (!project && !kind && !notePath && !attachmentPath && !pushStatus && ok !== false) {
+    process.stdout.write(`${JSON.stringify(parsed, null, 2)}\n`);
+  }
+  process.exit(ok === false ? 1 : 0);
+}
+
+process.stdout.write(`${trimmed}\n`);
+' "$response_file"
+}
+
+build_manual_note_json_payload() {
+  local event_id="$1"
+  local triggered_at="$2"
+  local project_slug="$3"
+  local source="$4"
+  local raw_text="$5"
+  local kind="$6"
+  local tags_json="$7"
+  local attachment_abs="${8:-}"
+  local attachment_name="${9:-}"
+  local attachment_mime="${10:-}"
+  local attachment_size="${11:-}"
+  local attachment_sha256="${12:-}"
+
+  node -e '
+const fs = require("fs");
+const [
+  eventId,
+  triggeredAt,
+  projectSlug,
+  source,
+  rawText,
+  kind,
+  tagsJson,
+  attachmentAbs,
+  attachmentName,
+  attachmentMime,
+  attachmentSize,
+  attachmentSha256,
+] = process.argv.slice(1);
+
+let tags = [];
+try {
+  const parsed = JSON.parse(tagsJson);
+  if (Array.isArray(parsed)) tags = parsed;
+} catch {}
+
+const payload = {
+  event_type: "manual_note",
+  event_id: eventId,
+  triggered_at: triggeredAt,
+  project_slug: projectSlug,
+  source,
+  raw_text: rawText,
+  kind,
+  tags,
+};
+
+if (attachmentAbs) {
+  payload.attachment = {
+    file_name: attachmentName || "attachment.bin",
+    mime_type: attachmentMime || "application/octet-stream",
+    size_bytes: Number(attachmentSize || 0) || 0,
+    sha256: String(attachmentSha256 || "").trim().toLowerCase(),
+    data_b64: fs.readFileSync(attachmentAbs).toString("base64"),
+  };
+}
+
+process.stdout.write(JSON.stringify(payload));
+' "$event_id" "$triggered_at" "$project_slug" "$source" "$raw_text" "$kind" "$tags_json" "$attachment_abs" "$attachment_name" "$attachment_mime" "$attachment_size" "$attachment_sha256"
+}
+
 detect_project_from_git_manifest() {
   local manifest="$1"
   local remote_url=""
@@ -441,32 +559,42 @@ EVENT_ID="manual:$(date -u +%Y%m%d%H%M%S):$RANDOM"
 EVENT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 TAGS_JSON="$(normalize_tags_json "$TAGS_CSV")"
 
-CURL_ARGS=(
-  --silent
-  --show-error
-  --fail-with-body
-  -X POST "$WEBHOOK_URL_RESOLVED"
-  -H "x-kb-secret: $KB_WEBHOOK_SECRET"
-  -F "event_type=manual_note"
-  -F "event_id=$EVENT_ID"
-  -F "triggered_at=$EVENT_AT"
-  -F "project_slug=$PROJECT_SLUG"
-  -F "source=kb-cli"
-  -F "raw_text=$RAW_TEXT"
-  -F "kind=$KIND"
-  -F "tags_json=$TAGS_JSON"
-)
+PAYLOAD_FILE="$(mktemp)"
+RESPONSE_FILE="$(mktemp)"
+cleanup() {
+  rm -f "$PAYLOAD_FILE"
+  rm -f "$RESPONSE_FILE"
+}
+trap cleanup EXIT
 
-if [[ -n "$ATTACHMENT_ABS" ]]; then
-  CURL_ARGS+=(
-    -F "attachment=@$ATTACHMENT_ABS;type=$ATTACHMENT_MIME"
-    -F "attachment_name=$ATTACHMENT_NAME"
-    -F "attachment_mime=$ATTACHMENT_MIME"
-    -F "attachment_size=$ATTACHMENT_SIZE_BYTES"
-    -F "attachment_sha256=$ATTACHMENT_SHA256"
-    -F "attachment_threshold=$MAX_INLINE_ATTACHMENT_BYTES"
-  )
+build_manual_note_json_payload \
+  "$EVENT_ID" \
+  "$EVENT_AT" \
+  "$PROJECT_SLUG" \
+  "kb-cli" \
+  "$RAW_TEXT" \
+  "$KIND" \
+  "$TAGS_JSON" \
+  "$ATTACHMENT_ABS" \
+  "$ATTACHMENT_NAME" \
+  "$ATTACHMENT_MIME" \
+  "$ATTACHMENT_SIZE_BYTES" \
+  "$ATTACHMENT_SHA256" >"$PAYLOAD_FILE"
+
+if ! curl \
+  --silent \
+  --show-error \
+  --fail-with-body \
+  -X POST "$WEBHOOK_URL_RESOLVED" \
+  -H "x-kb-secret: $KB_WEBHOOK_SECRET" \
+  -H "Content-Type: application/json" \
+  --data-binary "@$PAYLOAD_FILE" \
+  -o "$RESPONSE_FILE"; then
+  if [[ -s "$RESPONSE_FILE" ]]; then
+    cat "$RESPONSE_FILE" >&2
+    echo >&2
+  fi
+  exit 1
 fi
 
-curl "${CURL_ARGS[@]}"
-echo
+print_response_summary "$RESPONSE_FILE"

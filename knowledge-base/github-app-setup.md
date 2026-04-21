@@ -6,7 +6,7 @@ Use this mode to decouple the knowledge-base ingestion flow from individual repo
 
 - Webhook path: `/n8n/webhook/gH8xKbIngest0001/webhook/kb-event`
 - Example production webhook URL: `https://example.com/n8n/webhook/gH8xKbIngest0001/webhook/kb-event`
-- The same workflow also accepts manual `kb` entries (`multipart/form-data`).
+- The same workflow also accepts manual `kb` entries as `application/json`; attachments are sent in `attachment.data_b64`.
 
 ## Required env vars on the VPS
 

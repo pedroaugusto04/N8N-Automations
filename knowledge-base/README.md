@@ -26,7 +26,7 @@ Se `--kind` ou `--project` nao forem informados, o `kb` pergunta no terminal um 
 
 ## Fluxo de ingestão
 
-1. `kb` envia `multipart/form-data` para `KB_WEBHOOK_URL` com `x-kb-secret`.
+1. `kb` envia `application/json` para o `KB_WEBHOOK_URL` com `x-kb-secret`; quando existe anexo, ele segue embutido no campo `attachment.data_b64`.
 2. Workflow `knowledge-base-ingestion.json` normaliza payload + binário.
 3. n8n executa `process-event-v2.mjs` via **stdin** (`--stdin-base64`) para evitar limite de `argv`.
 4. Processor persiste nota + anexo conforme threshold, comita no vault e faz push conforme env.
