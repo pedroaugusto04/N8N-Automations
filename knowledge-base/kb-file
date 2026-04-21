@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  kb-file [project-slug] <file-path> [--note "texto"] [--title "titulo"] [--tags a,b]
+
+Examples:
+  kb-file ./src/auth.ts
+  kb-file n8n-automations ./knowledge-base/process-event-v2.mjs --note "referencia para parser"
+USAGE
+}
+
+PROJECT=""
+FILE_PATH=""
+NOTE_TEXT=""
+TITLE=""
+TAGS=""
+EXTRA_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --note)
+      NOTE_TEXT="${2:-}"
+      shift 2
+      ;;
+    --title)
+      TITLE="${2:-}"
+      shift 2
+      ;;
+    --tags)
+      TAGS="${2:-}"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      while [[ $# -gt 0 ]]; do
+        EXTRA_ARGS+=("$1")
+        shift
+      done
+      ;;
+    *)
+      EXTRA_ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+
+if [[ ${#EXTRA_ARGS[@]} -eq 0 ]]; then
+  usage >&2
+  exit 1
+fi
+
+if [[ ${#EXTRA_ARGS[@]} -ge 2 ]]; then
+  PROJECT="${EXTRA_ARGS[0]}"
+  FILE_PATH="${EXTRA_ARGS[1]}"
+else
+  FILE_PATH="${EXTRA_ARGS[0]}"
+fi
+
+if [[ ! -f "$FILE_PATH" ]]; then
+  echo "kb-file: file not found: $FILE_PATH" >&2
+  exit 1
+fi
+
+ABS_PATH="$(cd "$(dirname "$FILE_PATH")" && pwd)/$(basename "$FILE_PATH")"
+REL_HINT="$ABS_PATH"
+if [[ "$ABS_PATH" == "$PWD"/* ]]; then
+  REL_HINT="${ABS_PATH#"$PWD"/}"
+fi
+
+if [[ -z "$TITLE" ]]; then
+  TITLE="File - $(basename "$FILE_PATH")"
+fi
+
+if grep -Iq . "$FILE_PATH"; then
+  SNIPPET="$(sed -n '1,120p' "$FILE_PATH")"
+  BODY=$(cat <<EOF_BODY
+Arquivo de referencia:
+- path: $REL_HINT
+
+Resumo:
+${NOTE_TEXT:-arquivo salvo para referencia}
+
+Trecho inicial:
+
+~~~
+$SNIPPET
+~~~
+EOF_BODY
+)
+else
+  BODY=$(cat <<EOF_BODY
+Arquivo de referencia:
+- path: $REL_HINT
+
+Resumo:
+${NOTE_TEXT:-arquivo binario salvo para referencia}
+EOF_BODY
+)
+fi
+
+CMD=("$SCRIPT_DIR/kb-note" --kind manual_note --source-file "$REL_HINT" --title "$TITLE")
+if [[ -n "$PROJECT" ]]; then
+  CMD+=(--project "$PROJECT")
+fi
+if [[ -n "$TAGS" ]]; then
+  CMD+=(--tags "$TAGS")
+fi
+CMD+=("$BODY")
+
+exec "${CMD[@]}"

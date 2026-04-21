@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_NAME="$(basename "$0")"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="${KB_NOTE_CONFIG_FILE:-$HOME/.config/kb-note/config.env}"
 
 if [[ -f "$CONFIG_FILE" ]]; then
@@ -29,6 +30,21 @@ detect_vault_dir() {
   return 1
 }
 
+detect_manifest_path() {
+  local configured="${KB_PROJECTS_MANIFEST:-}"
+  if [[ -n "$configured" && -f "$configured" ]]; then
+    printf '%s' "$configured"
+    return 0
+  fi
+
+  if [[ -f "$SCRIPT_DIR/projects.json" ]]; then
+    printf '%s' "$SCRIPT_DIR/projects.json"
+    return 0
+  fi
+
+  return 1
+}
+
 slugify() {
   printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9-]+/-/g; s/^-+//; s/-+$//; s/-+/-/g'
 }
@@ -43,6 +59,80 @@ slugify_filename() {
     base="${base}.md"
   fi
   printf '%s' "$base"
+}
+
+map_kind_alias() {
+  case "$1" in
+    note|manual|manual_note)
+      printf '%s' "manual_note"
+      ;;
+    summary|resume)
+      printf '%s' "resume"
+      ;;
+    bug|article|postmortem|daily)
+      printf '%s' "$1"
+      ;;
+    *)
+      printf '%s' ""
+      ;;
+  esac
+}
+
+project_slug_known() {
+  local slug="$1"
+  local manifest="$2"
+
+  [[ -z "$slug" || -z "$manifest" || ! -f "$manifest" ]] && return 1
+
+  node -e '
+const fs = require("fs");
+const slug = process.argv[1];
+const manifest = process.argv[2];
+try {
+  const data = JSON.parse(fs.readFileSync(manifest, "utf8"));
+  const projects = Array.isArray(data?.projects) ? data.projects : [];
+  const ok = projects.some((p) => String(p?.project_slug || "").toLowerCase() === slug.toLowerCase());
+  process.exit(ok ? 0 : 1);
+} catch {
+  process.exit(1);
+}
+' "$slug" "$manifest" >/dev/null 2>&1
+}
+
+normalize_repo_full_name() {
+  local remote_url="$1"
+  local normalized=""
+
+  normalized="$(printf '%s' "$remote_url" | sed -E 's#^git@github.com:#https://github.com/#; s#\.git$##')"
+  normalized="$(printf '%s' "$normalized" | sed -E 's#^https?://github.com/##')"
+  normalized="$(printf '%s' "$normalized" | sed -E 's#^ssh://git@github.com/##; s#^github.com/##')"
+  normalized="$(printf '%s' "$normalized" | sed -E 's#^/##')"
+  printf '%s' "$normalized"
+}
+
+detect_project_from_git_manifest() {
+  local manifest="$1"
+  local remote_url=""
+  local repo_full_name=""
+
+  [[ -f "$manifest" ]] || return 1
+  git rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 1
+  remote_url="$(git config --get remote.origin.url 2>/dev/null || true)"
+  [[ -n "$remote_url" ]] || return 1
+  repo_full_name="$(normalize_repo_full_name "$remote_url")"
+  [[ -n "$repo_full_name" ]] || return 1
+
+  node -e '
+const fs = require("fs");
+const repo = process.argv[1].toLowerCase();
+const manifest = process.argv[2];
+try {
+  const data = JSON.parse(fs.readFileSync(manifest, "utf8"));
+  const projects = Array.isArray(data?.projects) ? data.projects : [];
+  const found = projects.find((p) => String(p?.repo_full_name || "").toLowerCase() === repo);
+  if (found?.project_slug) process.stdout.write(String(found.project_slug));
+} catch {}
+' "$repo_full_name" "$manifest"
 }
 
 join_csv_tags_as_yaml() {
@@ -218,18 +308,22 @@ build_markdown() {
 usage() {
   cat <<'USAGE_EOF'
 Usage:
-  kb-note --kind <bug|resume|article|manual_note|postmortem|daily> --project <slug> [options] [text]
+  kb-note [kind] [project] [options] [text]
+  kb-note --kind <bug|resume|article|manual_note|postmortem|daily> [--project <slug>] [options] [text]
   kb-bug <project-slug> [text] [--name arquivo.md] [--folder relative/path]
   kb-resume <project-slug> [text] [--name arquivo.md] [--folder relative/path]
   kb-article <project-slug> [text] [--name arquivo.md] [--folder relative/path]
+  kb-summary [project-slug] [text]
+  kb-file [project-slug] <arquivo>
 
 Options:
-  --kind <type>          Note type.
-  --project <slug>       Project slug. Use inbox for global notes.
-  --title <title>        Note title.
-  --name <file.md>       Explicit file name (kebab-case recommended).
-  --folder <path>        Custom relative folder. If it does not start with projects/ or inbox,
+  -k, --kind <type>      Note type.
+  -p, --project <slug>   Project slug. Use inbox for global notes.
+  -t, --title <title>    Note title.
+  -n, --name <file.md>   Explicit file name (kebab-case recommended).
+  -d, --folder <path>    Custom relative folder. If it does not start with projects/ or inbox,
                          it is appended under projects/<slug>/.
+  --kind <type>          Note type.
   --status <value>       Status (default: bug=open, postmortem=closed, others=active).
   --source-kind <value>  Source kind (default: manual).
   --severity <value>     Severity for bug/postmortem.
@@ -240,6 +334,8 @@ Options:
 
 Env:
   KB_VAULT_DIR           Vault root (default auto-detect).
+  KB_PROJECTS_MANIFEST   Projects manifest (default: <script-dir>/projects.json).
+  KB_NOTE_DEFAULT_PROJECT
 USAGE_EOF
 }
 
@@ -271,6 +367,26 @@ POSITIONAL=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    -k)
+      KIND="${2:-}"
+      shift 2
+      ;;
+    -p)
+      PROJECT_SLUG="${2:-}"
+      shift 2
+      ;;
+    -t)
+      TITLE="${2:-}"
+      shift 2
+      ;;
+    -n)
+      FILE_NAME="${2:-}"
+      shift 2
+      ;;
+    -d)
+      CUSTOM_FOLDER="${2:-}"
+      shift 2
+      ;;
     --file)
       FILE_PATH="${2:-}"
       shift 2
@@ -327,8 +443,15 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$KIND" ]]; then
-  echo "kb-note: --kind is required" >&2
-  exit 1
+  inferred_kind="$(map_kind_alias "${POSITIONAL[0]:-}")"
+  if [[ -n "$inferred_kind" ]]; then
+    KIND="$inferred_kind"
+    POSITIONAL=("${POSITIONAL[@]:1}")
+  else
+    KIND="manual_note"
+  fi
+else
+  KIND="$(map_kind_alias "$KIND")"
 fi
 
 case "$KIND" in
@@ -340,12 +463,31 @@ case "$KIND" in
     ;;
 esac
 
+MANIFEST_PATH="$(detect_manifest_path || true)"
 if [[ -z "$PROJECT_SLUG" && ${#POSITIONAL[@]} -gt 0 ]]; then
-  PROJECT_SLUG="${POSITIONAL[0]}"
-  POSITIONAL=("${POSITIONAL[@]:1}")
+  candidate_project="$(slugify "${POSITIONAL[0]}")"
+  if [[ "$candidate_project" == "inbox" ]]; then
+    PROJECT_SLUG="inbox"
+    POSITIONAL=("${POSITIONAL[@]:1}")
+  elif [[ -n "$MANIFEST_PATH" ]] && project_slug_known "$candidate_project" "$MANIFEST_PATH"; then
+    PROJECT_SLUG="$candidate_project"
+    POSITIONAL=("${POSITIONAL[@]:1}")
+  fi
 fi
 
 PROJECT_SLUG="$(slugify "${PROJECT_SLUG:-}")"
+if [[ "$PROJECT_SLUG" == "auto" ]]; then
+  PROJECT_SLUG=""
+fi
+if [[ -z "$PROJECT_SLUG" ]]; then
+  if [[ -n "$MANIFEST_PATH" ]]; then
+    PROJECT_SLUG="$(detect_project_from_git_manifest "$MANIFEST_PATH" || true)"
+  fi
+fi
+PROJECT_SLUG="$(slugify "${PROJECT_SLUG:-}")"
+if [[ -z "$PROJECT_SLUG" ]]; then
+  PROJECT_SLUG="$(slugify "${KB_NOTE_DEFAULT_PROJECT:-}")"
+fi
 if [[ -z "$PROJECT_SLUG" ]]; then
   PROJECT_SLUG="inbox"
 fi
@@ -353,11 +495,20 @@ fi
 BODY_TEXT=""
 if [[ -n "$FILE_PATH" ]]; then
   BODY_TEXT="$(cat "$FILE_PATH")"
+elif [[ ! -t 0 ]]; then
+  BODY_TEXT="$(cat)"
+  if [[ -z "${BODY_TEXT// }" ]]; then
+    BODY_TEXT="${POSITIONAL[*]:-}"
+  fi
 else
   BODY_TEXT="${POSITIONAL[*]:-}"
 fi
 
 if [[ -z "${BODY_TEXT// }" ]]; then
+  if [[ ! -t 0 ]]; then
+    echo "kb-note: empty note (provide text arg, --file, or stdin content)" >&2
+    exit 1
+  fi
   TMP_FILE="$(mktemp)"
   trap 'rm -f "$TMP_FILE"' EXIT
   "${EDITOR:-nano}" "$TMP_FILE"

@@ -5,7 +5,8 @@ Automacao do Knowledge Database com criacao local de notas e sincronizacao VPS -
 ## Arquivos principais
 
 - `kb-note`: cria notas markdown localmente no vault.
-- `kb-bug`, `kb-resume`, `kb-article`: wrappers do `kb-note`.
+- `kb`: comando unico com subcomandos curtos para rotina diaria.
+- `kb-bug`, `kb-resume`, `kb-article`, `kb-summary`, `kb-file`: wrappers do `kb-note`.
 - `scripts/knowledge-vault-git-push.sh`: commit + push automatico do vault.
 - `workflows/knowledge-vault-sync-vps-to-local.json`: workflow n8n (cron 5 min) que executa o script de push.
 - `knowledge-base-ingestion.json`: workflow opcional de ingestao via webhook.
@@ -36,13 +37,20 @@ Requisito: o usuario que executa o comando precisa ter permissao de escrita no d
 ## Uso rapido
 
 ```bash
-kb-bug n8n-automations "erro webhook 401"
-kb-resume n8n-automations "resumo do pdf de arquitetura"
-kb-article n8n-automations "guia de deploy"
+kb note "resumo rapido da sessao"
+kb bug "erro webhook 401"
+kb resume "resumo do pdf de arquitetura"
+kb article "guia de deploy"
+kb summary "chat/codex: ajustes no parser"
+kb file ./knowledge-base/process-event-v2.mjs --note "referencia do parser"
 
 kb-note --kind manual_note --project n8n-automations --title "ajuste do fluxo" "detalhes"
 kb-note --kind daily --project n8n-automations --name 2026-04-20.md "resumo do dia"
 ```
+
+Projeto automatico:
+- Se voce estiver dentro de um repo Git cujo `remote.origin.url` bate com `projects.json`, o `project_slug` e inferido automaticamente.
+- Se nao conseguir inferir, cai em `inbox`.
 
 Flags suportadas no `kb-note`:
 - `--kind <bug|resume|article|manual_note|postmortem|daily>`
@@ -56,6 +64,7 @@ Flags suportadas no `kb-note`:
 - `--source-file <path>`
 - `--tags a,b,c`
 - `--file <path>`
+- atalhos: `-k`, `-p`, `-t`, `-n`, `-d`
 
 ## Configuracao do push automatico no n8n
 

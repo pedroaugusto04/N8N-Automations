@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  kb <command> [args]
+
+Commands:
+  note [project] <text>      -> manual_note
+  bug [project] <text>
+  resume [project] <text>
+  article [project] <text>
+  daily [project] [text]
+  summary [project] [text]   -> resume
+  file [project] <path>      -> captura arquivo
+
+Examples:
+  kb note "resumo do que fiz agora"
+  kb bug "erro 401 no webhook"
+  kb summary n8n-automations "sessao de refactor do parser"
+  kb file ./src/auth.ts --note "referencia do middleware"
+USAGE
+}
+
+cmd="${1:-}"
+if [[ -z "$cmd" || "$cmd" == "-h" || "$cmd" == "--help" ]]; then
+  usage
+  exit 0
+fi
+shift || true
+
+case "$cmd" in
+  note)
+    exec "$SCRIPT_DIR/kb-note" --kind manual_note "$@"
+    ;;
+  bug)
+    exec "$SCRIPT_DIR/kb-note" --kind bug "$@"
+    ;;
+  resume)
+    exec "$SCRIPT_DIR/kb-note" --kind resume "$@"
+    ;;
+  article)
+    exec "$SCRIPT_DIR/kb-note" --kind article "$@"
+    ;;
+  daily)
+    exec "$SCRIPT_DIR/kb-note" --kind daily "$@"
+    ;;
+  summary)
+    exec "$SCRIPT_DIR/kb-summary" "$@"
+    ;;
+  file)
+    exec "$SCRIPT_DIR/kb-file" "$@"
+    ;;
+  *)
+    echo "kb: comando invalido: $cmd" >&2
+    usage >&2
+    exit 1
+    ;;
+esac
