@@ -3,37 +3,26 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { execFile as execFileCb } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.dirname(__dirname);
 const processorPath = path.join(repoRoot, 'process-event-v2.mjs');
+const execFile = promisify(execFileCb);
 
 async function runProcessor({ payload, env }) {
   const encoded = Buffer.from(JSON.stringify(payload)).toString('base64');
-  const child = spawn('node', [processorPath, '--stdin-base64'], {
+  const result = await execFile('node', [processorPath, '--stdin-base64'], {
     env: {
       ...process.env,
       ...env,
     },
-    stdio: ['pipe', 'pipe', 'pipe'],
+    input: encoded,
+    maxBuffer: 20 * 1024 * 1024,
   });
-  child.stdin.write(encoded);
-  child.stdin.end();
-
-  let stdout = '';
-  let stderr = '';
-  for await (const chunk of child.stdout) {
-    stdout += chunk.toString();
-  }
-  for await (const chunk of child.stderr) {
-    stderr += chunk.toString();
-  }
-
-  const exitCode = await new Promise((resolve) => child.on('close', resolve));
-  assert.equal(exitCode, 0, `processor exited with code ${exitCode}, stderr=${stderr}`);
-  return JSON.parse(stdout.trim() || '{}');
+  return JSON.parse(String(result.stdout || '').trim() || '{}');
 }
 
 async function createManifest(manifestPath) {
@@ -131,6 +120,7 @@ test('stores small attachment in vault and creates dashboard, canonical note and
   assert.match(result.attachmentPath, /^90 Assets\/n8n-automations\/2026\/04\//);
   assert.match(result.canonicalPath, /^30 Knowledge\/n8n-automations\/2026\/04\//);
   assert.match(result.followupPath, /^60 Followups\/n8n-automations\/2026\/04\//);
+  assert.equal(result.reminderPath, '');
   assert.equal(result.projectPath, '10 Projects/n8n-automations.md');
   const stored = path.join(vaultPath, result.attachmentPath);
   const storedStat = await fs.stat(stored);
@@ -215,6 +205,7 @@ test('stores large attachment in archive and promotes bug notes to incident', as
   assert.match(result.notePath, /^20 Inbox\/n8n-automations\/2026\/04\//);
   assert.match(result.canonicalPath, /^50 Incidents\/n8n-automations\/2026\/04\//);
   assert.match(result.followupPath, /^60 Followups\/n8n-automations\/2026\/04\//);
+  assert.equal(result.reminderPath, '');
   assert.ok(result.attachmentPath.startsWith(archivePath));
   const storedStat = await fs.stat(result.attachmentPath);
   assert.equal(storedStat.size, largeBuffer.byteLength);
@@ -230,4 +221,51 @@ test('stores large attachment in archive and promotes bug notes to incident', as
 
   const dailyBody = await fs.readFile(path.join(vaultPath, result.dailyPath), 'utf8');
   assert.match(dailyBody, /## Events/);
+});
+
+test('creates reminder note and reminders dashboard when reminder date/time are provided', async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'kb-reminder-'));
+  const vaultPath = path.join(tmp, 'vault');
+  const archivePath = path.join(tmp, 'archive');
+  const manifestPath = path.join(tmp, 'projects.json');
+  await createManifest(manifestPath);
+
+  const input = buildInput({
+    text: 'revisar deploy de producao',
+    eventId: 'manual:test-reminder',
+    body: {
+      reminder_date: '2026-04-22',
+      reminder_time: '09:15',
+    },
+  });
+
+  const result = await runProcessor({
+    payload: input,
+    env: {
+      KB_WEBHOOK_SECRET: 'test-secret',
+      KB_VAULT_PATH: vaultPath,
+      KB_ARCHIVE_PATH: archivePath,
+      KB_PROJECTS_MANIFEST: manifestPath,
+      KB_GIT_BATCH_MODE: 'true',
+      KB_ENABLE_GIT_PUSH: 'false',
+      KB_AI_PROVIDER: 'none',
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.match(result.reminderPath, /^70 Reminders\/n8n-automations\/2026\/04\//);
+
+  const reminderBody = await fs.readFile(path.join(vaultPath, result.reminderPath), 'utf8');
+  assert.match(reminderBody, /type: "reminder"/);
+  assert.match(reminderBody, /reminder_date: "2026-04-22"/);
+  assert.match(reminderBody, /reminder_time: "09:15"/);
+  assert.match(reminderBody, /reminder_at: "2026-04-22T09:15:00-03:00"/);
+  assert.match(reminderBody, /Lembrete agendado/);
+
+  const remindersDashboard = await fs.readFile(path.join(vaultPath, '70 Reminders/Reminders.md'), 'utf8');
+  assert.match(remindersDashboard, /# Lembretes/);
+  assert.match(remindersDashboard, /Lembretes com horario exato/);
+
+  const homeBody = await fs.readFile(path.join(vaultPath, '00 Home/Home.md'), 'utf8');
+  assert.match(homeBody, /\[\[70 Reminders\/Reminders\|Lembretes\]\]/);
 });

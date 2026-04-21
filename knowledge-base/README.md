@@ -5,7 +5,7 @@ Fluxo oficial: **remote-first** via webhook no n8n usando um comando único e um
 ## Comando oficial
 
 ```bash
-kb "<texto livre>" [--path /caminho/arquivo] [--project slug] [--kind manual_note|bug|resume|article|daily] [--note-type event|knowledge|decision|incident] [--importance low|medium|high] [--status open|active|resolved|archived] [--follow-up-by 2026-04-30] [--decision] [--related-projects a,b] [--tags a,b] [--default]
+kb "<texto livre>" [--path /caminho/arquivo] [--project slug] [--kind manual_note|bug|resume|article|daily] [--note-type event|knowledge|decision|incident] [--importance low|medium|high] [--status open|active|resolved|archived] [--follow-up-by 2026-04-30] [--reminder-date DD/MM/AAAA] [--reminder-time HH:mm] [--decision] [--related-projects a,b] [--tags a,b] [--default]
 ```
 
 Exemplos:
@@ -17,7 +17,7 @@ kb "padronizar deploy do backend" --note-type knowledge --importance high --rela
 kb "referencia do parser" --path ./knowledge-base/process-event-v2.mjs --tags parser,ingestion
 ```
 
-Se `--kind` ou `--project` nao forem informados, o `kb` pergunta no terminal um parametro por vez e lista as opcoes numeradas para selecao. Use `--default` para aceitar a sugestao automatica sem interacao.
+Se `--kind` ou `--project` nao forem informados, o `kb` pergunta no terminal um parametro por vez e lista as opcoes numeradas para selecao. O comando tambem pergunta a data do lembrete em `DD/MM/AAAA` e, se preenchida, o horario em `HH:mm`; `enter` deixa sem lembrete ou sem horario exato. Use `--default` para aceitar a sugestao automatica sem interacao.
 
 ## Modelo do vault
 
@@ -30,6 +30,7 @@ O processor agora gera uma estrutura orientada a visualizacao e navegacao no `Ob
 - `40 Decisions`: decisoes registradas
 - `50 Incidents`: incidentes e bugs promovidos
 - `60 Followups`: pendencias abertas
+- `70 Reminders`: lembretes com data definida e opcionalmente horario exato
 - `90 Assets`: anexos leves armazenados dentro do vault
 
 Todas as notas novas usam frontmatter consistente com campos como:
@@ -52,6 +53,8 @@ Notas manuais podem informar metadados extras:
 - `--follow-up-by`
 - `--decision`
 - `--related-projects`
+- `--reminder-date`
+- `--reminder-time`
 
 ## Política de anexos
 
@@ -65,7 +68,8 @@ Notas manuais podem informar metadados extras:
 2. Workflow `knowledge-base-ingestion.json` normaliza payload + binário.
 3. n8n executa `process-event-v2.mjs` via **stdin** (`--stdin-base64`) para evitar limite de `argv`.
 4. Processor persiste `event notes`, dashboards, paginas de projeto e, quando aplicavel, promove conteudo para `knowledge`, `decision`, `incident` e `followup`.
-5. O vault pode ser aberto direto no `Obsidian`, com `00 Home/Home.md` como entrada recomendada.
+5. Quando existe `reminder_date`, o processor cria uma nota em `70 Reminders/` e ela passa a alimentar o workflow `knowledge-base-reminders.json`.
+6. O vault pode ser aberto direto no `Obsidian`, com `00 Home/Home.md` como entrada recomendada.
 
 ## Variáveis de ambiente relevantes
 

@@ -39,6 +39,7 @@ const vaultFolders = {
   decisions: '40 Decisions',
   incidents: '50 Incidents',
   followups: '60 Followups',
+  reminders: '70 Reminders',
   assets: '90 Assets',
 };
 const saoPauloFormatter = new Intl.DateTimeFormat('en-CA', {
@@ -166,6 +167,66 @@ function serializePayloadFallback(value) {
 function parseDate(value) {
   const date = value ? new Date(value) : new Date();
   return Number.isNaN(date.getTime()) ? new Date() : date;
+}
+
+function isValidCalendarDateParts(year, month, day) {
+  const parsedYear = Number(year);
+  const parsedMonth = Number(month);
+  const parsedDay = Number(day);
+  if (!Number.isInteger(parsedYear) || !Number.isInteger(parsedMonth) || !Number.isInteger(parsedDay)) {
+    return false;
+  }
+  const date = new Date(Date.UTC(parsedYear, parsedMonth - 1, parsedDay));
+  return (
+    date.getUTCFullYear() === parsedYear &&
+    date.getUTCMonth() === parsedMonth - 1 &&
+    date.getUTCDate() === parsedDay
+  );
+}
+
+function normalizeReminderDate(value) {
+  const text = String(value || '').trim();
+  if (!text) {
+    return '';
+  }
+  let year = '';
+  let month = '';
+  let day = '';
+  let match = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (match) {
+    [, year, month, day] = match;
+    return isValidCalendarDateParts(year, month, day) ? `${year}-${month}-${day}` : '';
+  }
+  match = text.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!match) {
+    return '';
+  }
+  [, day, month, year] = match;
+  return isValidCalendarDateParts(year, month, day) ? `${year}-${month}-${day}` : '';
+}
+
+function normalizeReminderTime(value) {
+  const text = String(value || '').trim();
+  if (!text) {
+    return '';
+  }
+  const match = text.match(/^(\d{2}):(\d{2})$/);
+  if (!match) {
+    return '';
+  }
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+    return '';
+  }
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
+function buildReminderAt(reminderDate, reminderTime) {
+  if (!reminderDate || !reminderTime) {
+    return '';
+  }
+  return `${reminderDate}T${reminderTime}:00-03:00`;
 }
 
 function getDateParts(date) {
@@ -717,6 +778,7 @@ function renderHomePage() {
     renderQuickLinks('Links rapidos', 'Atalhos para as areas mais usadas do vault.', [
       `[[10 Projects/Projects|Projetos]]`,
       `[[60 Followups/Followups|Pendencias]]`,
+      `[[70 Reminders/Reminders|Lembretes]]`,
       `[[50 Incidents/Incidents|Incidentes]]`,
       `[[30 Knowledge/Knowledge|Conhecimento]]`,
       `[[40 Decisions/Decisions|Decisoes]]`,
@@ -763,7 +825,18 @@ function renderHomePage() {
       `Entender decisoes recentes: [[40 Decisions/Decisions|Decisoes]]`,
       `Consultar conhecimento consolidado: [[30 Knowledge/Knowledge|Conhecimento]]`,
       `Atacar pendencias abertas: [[60 Followups/Followups|Pendencias]]`,
+      `Revisar lembretes ativos: [[70 Reminders/Reminders|Lembretes]]`,
     ]),
+    renderDataviewSection({
+      title: 'Lembretes ativos',
+      description: 'Itens com data definida para resumo diario ou disparo exato no Telegram.',
+      sourceFolder: vaultFolders.reminders,
+      whereClause: 'type = "reminder" AND status != "resolved" AND status != "archived"',
+      sortField: 'reminder_at',
+      sortDirection: 'ASC',
+      limit: 12,
+      columns: ['reminder_date AS Data', 'reminder_time AS Horario', 'project AS Projeto', 'status AS Estado'],
+    }),
     renderDataviewSection({
       title: 'Decisoes recentes',
       description: 'Resumo rapido do que mudou de direcao ou padrao.',
@@ -795,6 +868,7 @@ function renderProjectsPage() {
       `[[00 Home/Home|Home]]`,
       `[[50 Incidents/Incidents|Incidentes]]`,
       `[[60 Followups/Followups|Pendencias]]`,
+      `[[70 Reminders/Reminders|Lembretes]]`,
     ]),
     renderDataviewSection({
       title: 'Todos os projetos',
@@ -828,6 +902,16 @@ function renderProjectsPage() {
       sortDirection: 'ASC',
       limit: 15,
       columns: ['follow_up_by AS Prazo', 'project AS Projeto', 'importance AS Prioridade', 'status AS Estado'],
+    }),
+    renderDataviewSection({
+      title: 'Lembretes ativos por projeto',
+      description: 'Lembretes com data definida para envio diario ou exato.',
+      sourceFolder: vaultFolders.reminders,
+      whereClause: 'type = "reminder" AND status != "resolved" AND status != "archived"',
+      sortField: 'reminder_at',
+      sortDirection: 'ASC',
+      limit: 15,
+      columns: ['reminder_date AS Data', 'reminder_time AS Horario', 'project AS Projeto', 'status AS Estado'],
     }),
   ].join('\n');
 }
@@ -997,6 +1081,47 @@ function renderFollowupsPage() {
   ].join('\n');
 }
 
+function renderRemindersPage() {
+  return [
+    renderFrontmatter({
+      id: 'reminders-dashboard',
+      type: 'dashboard',
+      canonical: true,
+      tags: ['dashboard', 'reminders'],
+    }),
+    '# Lembretes',
+    '',
+    renderCallout('warning', 'Fila de lembretes', [
+      'Esta area concentra os itens que devem aparecer no resumo diario das 09:00 e, quando houver horario, no disparo exato via Telegram.',
+    ]),
+    renderQuickLinks('Links rapidos', 'Use estes atalhos para navegar pelo restante do contexto.', [
+      `[[00 Home/Home|Home]]`,
+      `[[10 Projects/Projects|Projetos]]`,
+      `[[60 Followups/Followups|Pendencias]]`,
+    ]),
+    renderDataviewSection({
+      title: 'Lembretes com horario exato',
+      description: 'Itens com data e horario definidos para envio pontual.',
+      sourceFolder: vaultFolders.reminders,
+      whereClause: 'type = "reminder" AND reminder_at AND status != "resolved" AND status != "archived"',
+      sortField: 'reminder_at',
+      sortDirection: 'ASC',
+      limit: 30,
+      columns: ['reminder_date AS Data', 'reminder_time AS Horario', 'project AS Projeto', 'status AS Estado'],
+    }),
+    renderDataviewSection({
+      title: 'Todos os lembretes ativos',
+      description: 'Base usada pelo resumo diario das 09:00.',
+      sourceFolder: vaultFolders.reminders,
+      whereClause: 'type = "reminder" AND status != "resolved" AND status != "archived"',
+      sortField: 'reminder_date',
+      sortDirection: 'ASC',
+      limit: 40,
+      columns: ['reminder_date AS Data', 'reminder_time AS Horario', 'project AS Projeto', 'importance AS Prioridade', 'status AS Estado'],
+    }),
+  ].join('\n');
+}
+
 function renderProjectSummary(project) {
   const projectPath = `${vaultFolders.projects}/${project.project_slug}`;
   return [
@@ -1032,6 +1157,7 @@ function renderProjectSummary(project) {
       `[[#Decisoes recentes|Decisoes recentes]] para mudancas de rumo`,
       `[[#Incidentes abertos|Incidentes abertos]] para problemas ativos`,
       `[[#Pendencias abertas|Pendencias abertas]] para a fila de acompanhamento`,
+      `[[#Lembretes ativos|Lembretes ativos]] para compromissos com data definida`,
     ]),
     '## Saude do projeto',
     'Estas secoes ajudam a entender rapidamente o momento atual do projeto sem abrir varias notas em sequencia.',
@@ -1086,6 +1212,16 @@ function renderProjectSummary(project) {
       limit: 10,
       columns: ['importance AS Prioridade', 'follow_up_by AS Prazo', 'status AS Estado'],
     }),
+    renderDataviewSection({
+      title: 'Lembretes ativos',
+      description: 'Itens do projeto que vao aparecer no Telegram por resumo diario ou disparo exato.',
+      sourceFolder: vaultFolders.reminders,
+      whereClause: 'project = this.project AND status != "resolved" AND status != "archived"',
+      sortField: 'reminder_at',
+      sortDirection: 'ASC',
+      limit: 10,
+      columns: ['reminder_date AS Data', 'reminder_time AS Horario', 'importance AS Prioridade', 'status AS Estado'],
+    }),
     renderCallout('tip', 'Como usar esta pagina', [
       'Comece pelo estado atual para saber a criticidade e quem responde pelo projeto.',
       'Depois use as secoes de saude para localizar eventos recentes, conhecimento reutilizavel e pontos de tensao ainda abertos.',
@@ -1105,6 +1241,7 @@ async function ensureVaultScaffolding(projects) {
   await writeGeneratedPage(`${vaultFolders.decisions}/Decisions.md`, renderDecisionsPage());
   await writeGeneratedPage(`${vaultFolders.incidents}/Incidents.md`, renderIncidentsPage());
   await writeGeneratedPage(`${vaultFolders.followups}/Followups.md`, renderFollowupsPage());
+  await writeGeneratedPage(`${vaultFolders.reminders}/Reminders.md`, renderRemindersPage());
 
   for (const project of projects) {
     await writeGeneratedPage(toRelativeVaultPath(projectSummaryPath(project)), renderProjectSummary(project));
@@ -1122,6 +1259,8 @@ function buildCanonicalText(event, analysis) {
     analysis.impact,
     analysis.risks,
     analysis.nextSteps,
+    event.reminder_date ? `reminder_date:${event.reminder_date}` : '',
+    event.reminder_time ? `reminder_time:${event.reminder_time}` : '',
     ...files,
     ...commits,
     event.raw_text ? `manual:${event.raw_text}` : '',
@@ -1160,13 +1299,18 @@ function buildFallbackAnalysis(event) {
   if (event.event_type === 'manual_note') {
     const summary = trimParagraph(event.raw_text, 'Manual note registered.');
     const canonicalType = resolveCanonicalType(event);
+    const reminderContext = event.reminder_date
+      ? event.reminder_time
+        ? ` Lembrete exato configurado para ${event.reminder_date} ${event.reminder_time}.`
+        : ` Lembrete configurado para ${event.reminder_date} no resumo diario das 09:00.`
+      : '';
     return {
       source: 'fallback',
       summary,
       impact:
         canonicalType && canonicalType !== 'event'
-          ? `Registro manual com potencial de virar ${canonicalType} canonico para o projeto.`
-          : 'Observacao manual registrada para consulta futura e vinculada ao contexto atual do repositorio.',
+          ? `Registro manual com potencial de virar ${canonicalType} canonico para o projeto.${reminderContext}`
+          : `Observacao manual registrada para consulta futura e vinculada ao contexto atual do repositorio.${reminderContext}`,
       risks: 'Sem analise de IA configurada. Validar se o registro exige follow-up, consolidacao ou decisao explicita.',
       nextSteps:
         canonicalType && canonicalType !== 'event'
@@ -1207,6 +1351,9 @@ function buildPromptPayload(event) {
           importance: event.importance || '',
           status: event.status || '',
           follow_up_by: event.follow_up_by || '',
+          reminder_date: event.reminder_date || '',
+          reminder_time: event.reminder_time || '',
+          reminder_at: event.reminder_at || '',
           decision_flag: parseBoolean(event.decision_flag),
           related_projects: parseList(event.related_projects),
         }
@@ -1549,6 +1696,14 @@ function shouldCreateFollowup(payload, canonicalType) {
   return canonicalType === 'incident';
 }
 
+function shouldCreateReminder(payload) {
+  const explicitStatus = normalizeEnum(payload.status, statusValues, '');
+  if (explicitStatus === 'resolved' || explicitStatus === 'archived') {
+    return false;
+  }
+  return Boolean(String(payload.reminder_date || '').trim());
+}
+
 function buildNoteTitle(event, analysis, type) {
   if (type === 'project_summary') {
     return event.display_name;
@@ -1597,6 +1752,7 @@ function renderNavigationSection(paths) {
     ...(paths.dailyPath ? [vaultLink(paths.dailyPath, 'Log diario')] : []),
     ...(paths.canonicalPath ? [vaultLink(paths.canonicalPath, 'Nota canonica')] : []),
     ...(paths.followupPath ? [vaultLink(paths.followupPath, 'Follow-up')] : []),
+    ...(paths.reminderPath ? [vaultLink(paths.reminderPath, 'Lembrete')] : []),
   ]);
 }
 
@@ -1639,6 +1795,21 @@ function renderFollowupOverview(event, noteFrontmatter) {
     renderMetadataList([
       { label: 'Projeto', value: vaultLink(`${vaultFolders.projects}/${noteFrontmatter.project}`, event.display_name) },
       { label: 'Prazo', value: noteFrontmatter.follow_up_by || 'n/a' },
+      { label: 'Prioridade', value: renderImportanceBadge(noteFrontmatter.importance) },
+      { label: 'Status', value: renderStatusBadge(noteFrontmatter.status) },
+    ]),
+  ]);
+}
+
+function renderReminderOverview(event, noteFrontmatter) {
+  return renderCallout('warning', 'Lembrete agendado', [
+    'Esta nota entra no resumo diario das 09:00 e pode gerar um disparo exato no Telegram quando houver horario definido.',
+    '',
+    renderMetadataList([
+      { label: 'Projeto', value: vaultLink(`${vaultFolders.projects}/${noteFrontmatter.project}`, event.display_name) },
+      { label: 'Data', value: noteFrontmatter.reminder_date || 'n/a' },
+      { label: 'Horario', value: noteFrontmatter.reminder_time || '09:00 no resumo diario' },
+      { label: 'Disparo exato', value: noteFrontmatter.reminder_at || 'nao configurado' },
       { label: 'Prioridade', value: renderImportanceBadge(noteFrontmatter.importance) },
       { label: 'Status', value: renderStatusBadge(noteFrontmatter.status) },
     ]),
@@ -1708,6 +1879,8 @@ function renderEventNote(event, analysis, noteFrontmatter, paths) {
     `- source: ${event.source || 'n/a'}`,
     `- importance: ${noteFrontmatter.importance}`,
     `- status: ${noteFrontmatter.status}`,
+    `- reminder_date: ${noteFrontmatter.reminder_date || 'n/a'}`,
+    `- reminder_time: ${noteFrontmatter.reminder_time || 'n/a'}`,
     '',
   ].join('\n');
 }
@@ -1768,6 +1941,35 @@ function renderFollowupNote(event, analysis, noteFrontmatter, paths) {
     `- origem: ${vaultLink(paths.eventPath, 'Event Note')}`,
     `- projeto: ${vaultLink(paths.projectSummaryPath, 'Resumo do projeto')}`,
     ...(paths.canonicalPath ? [`- nota canonica: ${vaultLink(paths.canonicalPath, 'Canonical Note')}`] : []),
+    '',
+  ].join('\n');
+}
+
+function renderReminderNote(event, analysis, noteFrontmatter, paths) {
+  const frontmatter = renderFrontmatter(noteFrontmatter);
+  return [
+    frontmatter,
+    `# Reminder ${trimParagraph(analysis.summary || event.raw_text, event.display_name)}`,
+    '',
+    renderReminderOverview(event, noteFrontmatter),
+    renderNavigationSection(paths),
+    '## O que lembrar',
+    trimParagraph(event.raw_text, 'Sem descricao registrada.'),
+    '',
+    '## Contexto',
+    analysis.summary,
+    '',
+    '## Importancia',
+    analysis.impact,
+    '',
+    '## Links relacionados',
+    `- data: ${noteFrontmatter.reminder_date || 'n/a'}`,
+    `- horario: ${noteFrontmatter.reminder_time || 'n/a'}`,
+    `- disparo_exato: ${noteFrontmatter.reminder_at || 'nao configurado'}`,
+    `- origem: ${vaultLink(paths.eventPath, 'Event Note')}`,
+    `- projeto: ${vaultLink(paths.projectSummaryPath, 'Resumo do projeto')}`,
+    ...(paths.canonicalPath ? [`- nota canonica: ${vaultLink(paths.canonicalPath, 'Canonical Note')}`] : []),
+    ...(paths.followupPath ? [`- followup: ${vaultLink(paths.followupPath, 'Follow-up')}`] : []),
     '',
   ].join('\n');
 }
@@ -1875,8 +2077,18 @@ async function persistEvent(project, payload, analysis, allProjects) {
     : '';
   const followupRelativePath = followupPath ? toRelativeVaultPath(followupPath) : '';
 
+  const shouldTrackReminder = shouldCreateReminder(payload);
+  const reminderDir = shouldTrackReminder ? path.join(vaultPath, vaultFolders.reminders, project.project_slug, year, month) : '';
+  if (reminderDir) {
+    await ensureDir(reminderDir);
+  }
+  const reminderPath = shouldTrackReminder
+    ? path.join(reminderDir, buildCanonicalFileName(eventDate, payload, analysis, 'reminder'))
+    : '';
+  const reminderRelativePath = reminderPath ? toRelativeVaultPath(reminderPath) : '';
+
   const relatedProjects = unique([project.project_slug, ...parseList(payload.related_projects)]);
-  const relatedEntries = buildRelatedEntries(projectPath, canonicalRelativePath, followupRelativePath, payload.related);
+  const relatedEntries = buildRelatedEntries(projectPath, canonicalRelativePath, followupRelativePath, reminderRelativePath, payload.related);
   const baseTags = unique([
     ...(project.default_tags || []),
     ...(Array.isArray(payload.tags) ? payload.tags : []),
@@ -1920,6 +2132,9 @@ async function persistEvent(project, payload, analysis, allProjects) {
     attachment_sha256: persistedAttachment?.sha256 || '',
     attachment_size_bytes: persistedAttachment?.size_bytes || 0,
     follow_up_by: String(payload.follow_up_by || '').trim(),
+    reminder_date: String(payload.reminder_date || '').trim(),
+    reminder_time: String(payload.reminder_time || '').trim(),
+    reminder_at: String(payload.reminder_at || '').trim(),
     promoted_to: canonicalType || '',
   };
 
@@ -1930,6 +2145,7 @@ async function persistEvent(project, payload, analysis, allProjects) {
       eventPath: eventRelativePath,
       canonicalPath: canonicalRelativePath,
       followupPath: followupRelativePath,
+      reminderPath: reminderRelativePath,
     }),
     'utf8',
   );
@@ -1946,13 +2162,16 @@ async function persistEvent(project, payload, analysis, allProjects) {
       importance,
       status,
       tags: unique([...baseTags, canonicalType]),
-      related: buildRelatedEntries(eventRelativePath, projectPath, followupRelativePath),
+      related: buildRelatedEntries(eventRelativePath, projectPath, followupRelativePath, reminderRelativePath),
       related_projects: relatedProjects,
       repo: payload.repo || project.repo_full_name || '',
       branch: payload.branch || project.default_branch,
       origin_event_id: payload.event_id,
       origin_event_path: eventRelativePath,
       follow_up_by: String(payload.follow_up_by || '').trim(),
+      reminder_date: String(payload.reminder_date || '').trim(),
+      reminder_time: String(payload.reminder_time || '').trim(),
+      reminder_at: String(payload.reminder_at || '').trim(),
       decision_flag: parseBoolean(payload.decision_flag),
     };
     await fs.writeFile(
@@ -1966,6 +2185,7 @@ async function persistEvent(project, payload, analysis, allProjects) {
           eventPath: eventRelativePath,
           canonicalPath: canonicalRelativePath,
           followupPath: followupRelativePath,
+          reminderPath: reminderRelativePath,
         },
         canonicalType,
       ),
@@ -1986,9 +2206,12 @@ async function persistEvent(project, payload, analysis, allProjects) {
       importance,
       status: resolveStatus({ ...payload, status: payload.status || 'open' }, 'followup'),
       tags: unique([...baseTags, 'followup']),
-      related: buildRelatedEntries(eventRelativePath, canonicalRelativePath, projectPath),
+      related: buildRelatedEntries(eventRelativePath, canonicalRelativePath, reminderRelativePath, projectPath),
       related_projects: relatedProjects,
       follow_up_by: String(payload.follow_up_by || '').trim(),
+      reminder_date: String(payload.reminder_date || '').trim(),
+      reminder_time: String(payload.reminder_time || '').trim(),
+      reminder_at: String(payload.reminder_at || '').trim(),
       origin_event_id: payload.event_id,
       origin_event_path: eventRelativePath,
     };
@@ -1999,10 +2222,45 @@ async function persistEvent(project, payload, analysis, allProjects) {
         eventPath: eventRelativePath,
         canonicalPath: canonicalRelativePath,
         followupPath: followupRelativePath,
+        reminderPath: reminderRelativePath,
       }),
       'utf8',
     );
     followupWritten = true;
+  }
+
+  let reminderWritten = false;
+  if (reminderPath) {
+    const reminderFrontmatter = {
+      id: `${payload.event_id}:reminder`,
+      type: 'reminder',
+      canonical: false,
+      project: project.project_slug,
+      source: payload.source || 'n8n',
+      occurred_at: eventDate.toISOString(),
+      importance,
+      status,
+      tags: unique([...baseTags, 'reminder']),
+      related: buildRelatedEntries(eventRelativePath, canonicalRelativePath, followupRelativePath, projectPath),
+      related_projects: relatedProjects,
+      reminder_date: String(payload.reminder_date || '').trim(),
+      reminder_time: String(payload.reminder_time || '').trim(),
+      reminder_at: String(payload.reminder_at || '').trim(),
+      origin_event_id: payload.event_id,
+      origin_event_path: eventRelativePath,
+    };
+    await fs.writeFile(
+      reminderPath,
+      renderReminderNote(event, analysis, reminderFrontmatter, {
+        projectSummaryPath: projectPath,
+        eventPath: eventRelativePath,
+        canonicalPath: canonicalRelativePath,
+        followupPath: followupRelativePath,
+        reminderPath: reminderRelativePath,
+      }),
+      'utf8',
+    );
+    reminderWritten = true;
   }
 
   const dailyPath = await upsertDailyNote(project, event, analysis, eventRelativePath, eventDate);
@@ -2049,6 +2307,7 @@ async function persistEvent(project, payload, analysis, allProjects) {
     project: project.project_slug,
     kind: payload.kind || 'manual_note',
     notePath: eventRelativePath,
+    reminderPath: reminderRelativePath,
     attachmentMode: persistedAttachment?.mode || 'none',
     attachmentPath: persistedAttachment?.stored_path || '',
     dailyPath: toRelativeVaultPath(dailyPath),
@@ -2058,6 +2317,7 @@ async function persistEvent(project, payload, analysis, allProjects) {
     followupPath: followupRelativePath,
     canonicalCreated: canonicalWritten,
     followupCreated: followupWritten,
+    reminderCreated: reminderWritten,
     commitCreated: commitResult.ok,
     commitMessage,
     pushAttempted: gitBatchMode ? false : enableGitPush,
@@ -2176,6 +2436,9 @@ function normalizePayloadAndAuth(input, projects) {
   payload.importance = normalizeEnum(payload.importance, importanceLevels, '');
   payload.status = normalizeEnum(payload.status, statusValues, '');
   payload.follow_up_by = String(payload.follow_up_by || '').trim();
+  payload.reminder_date = normalizeReminderDate(payload.reminder_date);
+  payload.reminder_time = normalizeReminderTime(payload.reminder_time);
+  payload.reminder_at = String(payload.reminder_at || '').trim();
   payload.decision_flag = parseBoolean(payload.decision_flag);
   payload.tags = parseTags(payload.tags || payload.tags_json || payload.tags_csv);
   payload.related_projects = parseList(payload.related_projects || payload.related_projects_json || payload.related_projects_csv);
@@ -2193,6 +2456,16 @@ function normalizePayloadAndAuth(input, projects) {
     if (!manualNoteKinds.has(payload.kind)) {
       throw new Error('invalid_manual_note_kind');
     }
+    if (String(input.payload?.reminder_date || '').trim() && !payload.reminder_date) {
+      throw new Error('invalid_reminder_date');
+    }
+    if (String(input.payload?.reminder_time || '').trim() && !payload.reminder_time) {
+      throw new Error('invalid_reminder_time');
+    }
+    if (payload.reminder_time && !payload.reminder_date) {
+      throw new Error('reminder_time_without_date');
+    }
+    payload.reminder_at = payload.reminder_date && payload.reminder_time ? buildReminderAt(payload.reminder_date, payload.reminder_time) : '';
   }
 
   const project = resolveProject(payload, projects);

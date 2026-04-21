@@ -80,6 +80,7 @@ test('kb sends json payload with text and attachment', async () => {
           project: 'n8n-automations',
           kind: 'bug',
           notePath: '20 Inbox/n8n-automations/2026/04/note.md',
+          reminderPath: '70 Reminders/n8n-automations/2026/04/reminder.md',
           canonicalPath: '50 Incidents/n8n-automations/2026/04/canonical.md',
           followupPath: '60 Followups/n8n-automations/2026/04/followup.md',
           projectPath: '10 Projects/n8n-automations.md',
@@ -135,6 +136,7 @@ test('kb sends json payload with text and attachment', async () => {
   assert.match(result.stdout, /project: n8n-automations/);
   assert.match(result.stdout, /kind: bug/);
   assert.match(result.stdout, /note: 20 Inbox\/n8n-automations\/2026\/04\/note\.md/);
+  assert.match(result.stdout, /reminder: 70 Reminders\/n8n-automations\/2026\/04\/reminder\.md/);
   assert.match(result.stdout, /canonical: 50 Incidents\/n8n-automations\/2026\/04\/canonical\.md/);
   assert.match(result.stdout, /followup: 60 Followups\/n8n-automations\/2026\/04\/followup\.md/);
   assert.match(result.stdout, /project_page: 10 Projects\/n8n-automations\.md/);
@@ -148,6 +150,9 @@ test('kb sends json payload with text and attachment', async () => {
   assert.equal(requests[0].json.importance, 'high');
   assert.equal(requests[0].json.status, 'open');
   assert.equal(requests[0].json.follow_up_by, '2026-04-30');
+  assert.equal(requests[0].json.reminder_date, '');
+  assert.equal(requests[0].json.reminder_time, '');
+  assert.equal(requests[0].json.reminder_at, '');
   assert.equal(requests[0].json.decision_flag, true);
   assert.deepEqual(requests[0].json.related_projects, ['fe-connect', 'wander-rag']);
   assert.equal(requests[0].json.project_slug, 'n8n-automations');
@@ -217,4 +222,57 @@ test('kb asks for missing kind and project one by one with numbered choices', as
   assert.match(result.stdout, /kind: bug/);
   assert.equal(requests[0].json.note_type, '');
   assert.deepEqual(requests[0].json.related_projects, []);
+  assert.equal(requests[0].json.reminder_date, '');
+  assert.equal(requests[0].json.reminder_time, '');
+  assert.equal(requests[0].json.reminder_at, '');
+});
+
+test('kb re-prompts for invalid reminder date and time and sends normalized schedule', async () => {
+  const requests = [];
+  const server = http.createServer((req, res) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => {
+      const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      requests.push(parsed);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          ok: true,
+          event_id: 'manual:test:reminder',
+          project: 'n8n-automations',
+          kind: 'manual_note',
+          reminderPath: '70 Reminders/n8n-automations/2026/04/reminder.md',
+        }),
+      );
+    });
+  });
+
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  const port = typeof address === 'object' && address ? address.port : 0;
+
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'kb-cli-reminder-'));
+  const result = await runKbInteractive(
+    ['lembrar de revisar deploy'],
+    '1\n1\n31-12-2026\n31/12/2026\n25:61\n09:30\n',
+    {
+      HOME: tmp,
+      KB_WEBHOOK_URL: `http://127.0.0.1:${port}/kb-event`,
+      KB_WEBHOOK_SECRET: 'test-secret',
+    },
+  );
+
+  server.close();
+
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stderr, /kb: data do lembrete \(DD\/MM\/AAAA, enter para ignorar\): /);
+  assert.match(result.stderr, /kb: data invalida\. Use o formato DD\/MM\/AAAA\./);
+  assert.match(result.stderr, /kb: horario do lembrete \(HH:mm, enter para deixar sem horario exato\): /);
+  assert.match(result.stderr, /kb: horario invalido\. Use o formato HH:mm\./);
+  assert.match(result.stdout, /reminder: 70 Reminders\/n8n-automations\/2026\/04\/reminder\.md/);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].reminder_date, '2026-12-31');
+  assert.equal(requests[0].reminder_time, '09:30');
+  assert.equal(requests[0].reminder_at, '2026-12-31T09:30:00-03:00');
 });

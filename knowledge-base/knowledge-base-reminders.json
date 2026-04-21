@@ -1,0 +1,455 @@
+[
+  {
+    "id": "kbReminders240001",
+    "name": "Knowledge Base - Reminders",
+    "active": true,
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "cronExpression",
+                "expression": "0 9 * * *"
+              }
+            ]
+          }
+        },
+        "id": "4caa229b-77b9-4708-a7a8-3465e6f1f941",
+        "name": "Every Day 09:00",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          120
+        ]
+      },
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "minutes",
+                "minutesInterval": 1
+              }
+            ]
+          }
+        },
+        "id": "80d83d3a-9122-42b8-bcbf-cdb59f98c3dd",
+        "name": "Every Minute",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          360
+        ]
+      },
+      {
+        "parameters": {
+          "command": "=node /home/node/knowledge-base/reminders-dispatch.mjs daily"
+        },
+        "id": "f7de8a73-bfd7-450d-8785-8109a9c6e1f9",
+        "name": "Build Daily Reminders",
+        "type": "n8n-nodes-base.executeCommand",
+        "typeVersion": 1,
+        "position": [
+          240,
+          120
+        ]
+      },
+      {
+        "parameters": {
+          "command": "=node /home/node/knowledge-base/reminders-dispatch.mjs exact"
+        },
+        "id": "0b1fca91-c701-4c7f-b624-1214ebdd8ca0",
+        "name": "Build Exact Reminders",
+        "type": "n8n-nodes-base.executeCommand",
+        "typeVersion": 1,
+        "position": [
+          240,
+          360
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const stdout = String($json.stdout || '').trim();\nlet parsed;\ntry {\n  parsed = JSON.parse(stdout || '{}');\n} catch {\n  parsed = { ok: false, shouldSend: false, message: stdout || 'daily reminder dispatcher returned no json' };\n}\nreturn [{ json: parsed }];"
+        },
+        "id": "244a0f7e-e2d3-4f9f-9325-e2fd5d7c04bf",
+        "name": "Parse Daily Result",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          480,
+          120
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const stdout = String($json.stdout || '').trim();\nlet parsed;\ntry {\n  parsed = JSON.parse(stdout || '{}');\n} catch {\n  parsed = { ok: false, shouldSend: false, message: stdout || 'exact reminder dispatcher returned no json' };\n}\nreturn [{ json: parsed }];"
+        },
+        "id": "bb7bf19b-f2be-4573-a857-588b7e66fcbc",
+        "name": "Parse Exact Result",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          480,
+          360
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "9106c97f-7326-48ba-86a7-5e4e310df0bf",
+                "leftValue": "={{ String($json.shouldSend) }}",
+                "rightValue": "true",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals",
+                  "name": "filter.operator.equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "72f9ccab-7fe5-453f-b6ca-43fa8c19010f",
+        "name": "Has Daily Message?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          720,
+          120
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "478cc40f-1ff8-4e7e-8a5a-d7dc5d8b24ff",
+                "leftValue": "={{ String($json.shouldSend) }}",
+                "rightValue": "true",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals",
+                  "name": "filter.operator.equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "3634fe84-a5fd-4a99-b7ae-b85f39729eb2",
+        "name": "Has Exact Message?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          720,
+          360
+        ]
+      },
+      {
+        "parameters": {
+          "chatId": "={{ $env.VPS_TELEGRAM_CHAT_ID }}",
+          "text": "={{ $json.text }}",
+          "additionalFields": {
+            "appendAttribution": false
+          }
+        },
+        "id": "8ca7a70f-28a3-4b29-bd48-f63401b5a5f1",
+        "name": "Send Daily Reminders",
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          960,
+          80
+        ],
+        "credentials": {
+          "telegramApi": {
+            "id": "tgCredVps2400001",
+            "name": "Telegram VPS"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "chatId": "={{ $env.VPS_TELEGRAM_CHAT_ID }}",
+          "text": "={{ $json.text }}",
+          "additionalFields": {
+            "appendAttribution": false
+          }
+        },
+        "id": "a1102ff0-6671-43d7-b4d3-9d7a9f641aa5",
+        "name": "Send Exact Reminder",
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          960,
+          320
+        ],
+        "credentials": {
+          "telegramApi": {
+            "id": "tgCredVps2400001",
+            "name": "Telegram VPS"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "6d7f61da-523a-49b3-acd9-24f3b79f7e20",
+                "leftValue": "={{ String($json.ok) }}",
+                "rightValue": "false",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals",
+                  "name": "filter.operator.equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "18362825-90a0-4e47-a73f-f6327f6268a8",
+        "name": "Daily Failed?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          720,
+          180
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "431ffc4b-888c-49c9-accc-57ebcfcb8db2",
+                "leftValue": "={{ String($json.ok) }}",
+                "rightValue": "false",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals",
+                  "name": "filter.operator.equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "f2b6ebc2-a5a8-4e3c-a6c9-4f7fb37f4118",
+        "name": "Exact Failed?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          720,
+          420
+        ]
+      },
+      {
+        "parameters": {
+          "chatId": "={{ $env.VPS_TELEGRAM_CHAT_ID }}",
+          "text": "={{ $json.message || 'Knowledge base daily reminders failed' }}",
+          "additionalFields": {
+            "appendAttribution": false
+          }
+        },
+        "id": "56d5bc17-dfe8-42d7-932a-d234c450d8e0",
+        "name": "Daily Failure Alert",
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          960,
+          180
+        ],
+        "credentials": {
+          "telegramApi": {
+            "id": "tgCredVps2400001",
+            "name": "Telegram VPS"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "chatId": "={{ $env.VPS_TELEGRAM_CHAT_ID }}",
+          "text": "={{ $json.message || 'Knowledge base exact reminders failed' }}",
+          "additionalFields": {
+            "appendAttribution": false
+          }
+        },
+        "id": "3746d02e-ac10-4225-9a6d-2c84cb5c2130",
+        "name": "Exact Failure Alert",
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          960,
+          420
+        ],
+        "credentials": {
+          "telegramApi": {
+            "id": "tgCredVps2400001",
+            "name": "Telegram VPS"
+          }
+        }
+      }
+    ],
+    "connections": {
+      "Every Day 09:00": {
+        "main": [
+          [
+            {
+              "node": "Build Daily Reminders",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Every Minute": {
+        "main": [
+          [
+            {
+              "node": "Build Exact Reminders",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Daily Reminders": {
+        "main": [
+          [
+            {
+              "node": "Parse Daily Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Exact Reminders": {
+        "main": [
+          [
+            {
+              "node": "Parse Exact Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parse Daily Result": {
+        "main": [
+          [
+            {
+              "node": "Has Daily Message?",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Daily Failed?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parse Exact Result": {
+        "main": [
+          [
+            {
+              "node": "Has Exact Message?",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Exact Failed?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Has Daily Message?": {
+        "main": [
+          [
+            {
+              "node": "Send Daily Reminders",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Has Exact Message?": {
+        "main": [
+          [
+            {
+              "node": "Send Exact Reminder",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Daily Failed?": {
+        "main": [
+          [
+            {
+              "node": "Daily Failure Alert",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Exact Failed?": {
+        "main": [
+          [
+            {
+              "node": "Exact Failure Alert",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1"
+    },
+    "pinData": {}
+  }
+]
