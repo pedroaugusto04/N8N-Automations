@@ -14,7 +14,7 @@ MAX_INLINE_ATTACHMENT_BYTES=$((10 * 1024 * 1024))
 usage() {
   cat <<'USAGE'
 Usage:
-  kb "<texto livre>" [--path /arquivo] [--project slug] [--kind manual_note|bug|resume|article|daily] [--tags a,b] [--yes]
+  kb "<texto livre>" [--path /arquivo] [--project slug] [--kind manual_note|bug|resume|article|daily] [--tags a,b] [--default]
 
 Examples:
   kb "corrigi timeout no webhook"
@@ -35,6 +35,161 @@ slugify() {
 
 trim_spaces() {
   printf '%s' "$1" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//'
+}
+
+add_unique_choice() {
+  local value="$1"
+  local label="$2"
+  local -n values_ref="$3"
+  local -n labels_ref="$4"
+  local existing
+
+  [[ -n "$value" ]] || return 0
+  for existing in "${values_ref[@]:-}"; do
+    [[ "$existing" == "$value" ]] && return 0
+  done
+
+  values_ref+=("$value")
+  labels_ref+=("$label")
+}
+
+prompt_numbered_choice() {
+  local prompt="$1"
+  local default_index="$2"
+  local values_name="$3"
+  local labels_name="$4"
+  local -n values_ref="$values_name"
+  local -n labels_ref="$labels_name"
+  local answer=""
+  local display_index=0
+  local selected_index=0
+
+  while true; do
+    printf '%s\n' "$prompt" >&2
+    for selected_index in "${!values_ref[@]}"; do
+      display_index=$((selected_index + 1))
+      if (( selected_index == default_index )); then
+        printf '  %d) %s [padrao]\n' "$display_index" "${labels_ref[$selected_index]}" >&2
+      else
+        printf '  %d) %s\n' "$display_index" "${labels_ref[$selected_index]}" >&2
+      fi
+    done
+
+    if (( default_index >= 0 )); then
+      printf 'Escolha um numero [%d]: ' $((default_index + 1)) >&2
+    else
+      printf 'Escolha um numero: ' >&2
+    fi
+
+    answer=""
+    if ! read -r answer; then
+      echo "kb: entrada encerrada ao solicitar uma escolha interativa." >&2
+      exit 1
+    fi
+
+    answer="$(trim_spaces "$answer")"
+    if [[ -z "$answer" ]] && (( default_index >= 0 )); then
+      printf '%s' "${values_ref[$default_index]}"
+      return 0
+    fi
+
+    if [[ "$answer" =~ ^[0-9]+$ ]]; then
+      selected_index=$((answer - 1))
+      if (( selected_index >= 0 && selected_index < ${#values_ref[@]} )); then
+        printf '%s' "${values_ref[$selected_index]}"
+        return 0
+      fi
+    fi
+
+    echo "kb: escolha invalida. Digite um numero entre 1 e ${#values_ref[@]}." >&2
+  done
+}
+
+kind_description() {
+  case "$1" in
+    manual_note) printf 'manual_note - anotacao manual geral' ;;
+    bug) printf 'bug - erro, falha ou incidente' ;;
+    resume) printf 'resume - resumo, sintese ou recap' ;;
+    article) printf 'article - artigo, tutorial ou documentacao' ;;
+    daily) printf 'daily - diario, standup ou registro do dia' ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+build_kind_choices() {
+  local recommended_kind="$1"
+  KIND_OPTION_VALUES=()
+  KIND_OPTION_LABELS=()
+
+  add_unique_choice "$recommended_kind" "$(kind_description "$recommended_kind")" KIND_OPTION_VALUES KIND_OPTION_LABELS
+  add_unique_choice "manual_note" "$(kind_description "manual_note")" KIND_OPTION_VALUES KIND_OPTION_LABELS
+  add_unique_choice "bug" "$(kind_description "bug")" KIND_OPTION_VALUES KIND_OPTION_LABELS
+  add_unique_choice "resume" "$(kind_description "resume")" KIND_OPTION_VALUES KIND_OPTION_LABELS
+  add_unique_choice "article" "$(kind_description "article")" KIND_OPTION_VALUES KIND_OPTION_LABELS
+  add_unique_choice "daily" "$(kind_description "daily")" KIND_OPTION_VALUES KIND_OPTION_LABELS
+}
+
+load_manifest_projects() {
+  local manifest="$1"
+
+  [[ -f "$manifest" ]] || return 0
+
+  node -e '
+const fs = require("fs");
+const manifest = process.argv[1];
+try {
+  const data = JSON.parse(fs.readFileSync(manifest, "utf8"));
+  const projects = Array.isArray(data?.projects) ? data.projects : [];
+  for (const project of projects) {
+    if (project?.enabled === false) continue;
+    const slug = String(project?.project_slug || "").trim();
+    if (!slug) continue;
+    const display = String(project?.display_name || slug).trim();
+    process.stdout.write(`${slug}\t${display}\n`);
+  }
+} catch {}
+' "$manifest"
+}
+
+build_project_choices() {
+  local manifest="$1"
+  local detected_project="$2"
+  local default_project="$3"
+  local slug=""
+  local display_name=""
+  PROJECT_OPTION_VALUES=()
+  PROJECT_OPTION_LABELS=()
+
+  if [[ -n "$detected_project" ]]; then
+    add_unique_choice \
+      "$detected_project" \
+      "$detected_project - projeto detectado pelo repositorio atual" \
+      PROJECT_OPTION_VALUES \
+      PROJECT_OPTION_LABELS
+  fi
+
+  if [[ -n "$default_project" ]]; then
+    add_unique_choice \
+      "$default_project" \
+      "$default_project - projeto padrao configurado" \
+      PROJECT_OPTION_VALUES \
+      PROJECT_OPTION_LABELS
+  fi
+
+  add_unique_choice \
+    "inbox" \
+    "inbox - caixa de entrada geral" \
+    PROJECT_OPTION_VALUES \
+    PROJECT_OPTION_LABELS
+
+  while IFS=$'\t' read -r slug display_name; do
+    [[ -n "$slug" ]] || continue
+    add_unique_choice \
+      "$slug" \
+      "$display_name ($slug)" \
+      PROJECT_OPTION_VALUES \
+      PROJECT_OPTION_LABELS
+  done < <(load_manifest_projects "$manifest")
 }
 
 normalize_tags_json() {
@@ -137,7 +292,7 @@ PROJECT_SLUG=""
 KIND=""
 TAGS_CSV=""
 ATTACHMENT_PATH=""
-AUTO_CONFIRM="false"
+USE_DEFAULTS="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -157,8 +312,8 @@ while [[ $# -gt 0 ]]; do
       ATTACHMENT_PATH="${2:-}"
       shift 2
       ;;
-    --yes)
-      AUTO_CONFIRM="true"
+    --default)
+      USE_DEFAULTS="true"
       shift
       ;;
     -h|--help)
@@ -197,24 +352,46 @@ esac
 if [[ -z "$KIND" ]]; then
   read -r inferred_kind inferred_confidence <<<"$(infer_kind "$RAW_TEXT")"
   KIND="$inferred_kind"
-  if [[ "$inferred_confidence" == "low" && "$AUTO_CONFIRM" != "true" ]]; then
-    printf "kb: classificacao ambigua, assumir kind='%s'? [Y/n] " "$KIND" >&2
-    answer=""
-    read -r answer || true
-    answer="$(printf '%s' "$answer" | tr '[:upper:]' '[:lower:]')"
-    if [[ -n "$answer" && "$answer" != "y" && "$answer" != "yes" ]]; then
-      echo "kb: abortado. Reexecute com --kind manual_note|bug|resume|article|daily ou --yes." >&2
-      exit 1
-    fi
+  if [[ "$USE_DEFAULTS" != "true" ]]; then
+    build_kind_choices "$inferred_kind"
+    KIND="$(
+      prompt_numbered_choice \
+        "kb: selecione o kind da anotacao:" \
+        0 \
+        KIND_OPTION_VALUES \
+        KIND_OPTION_LABELS
+    )"
   fi
 fi
 
+DETECTED_PROJECT_SLUG=""
 if [[ -z "$PROJECT_SLUG" ]]; then
   if [[ -f "$SCRIPT_DIR/projects.json" ]]; then
-    PROJECT_SLUG="$(detect_project_from_git_manifest "$SCRIPT_DIR/projects.json" || true)"
+    DETECTED_PROJECT_SLUG="$(detect_project_from_git_manifest "$SCRIPT_DIR/projects.json" || true)"
   fi
 fi
-PROJECT_SLUG="$(slugify "${PROJECT_SLUG:-${KB_NOTE_DEFAULT_PROJECT:-inbox}}")"
+
+DEFAULT_PROJECT_SLUG="$(slugify "${KB_NOTE_DEFAULT_PROJECT:-inbox}")"
+if [[ -z "$DEFAULT_PROJECT_SLUG" ]]; then
+  DEFAULT_PROJECT_SLUG="inbox"
+fi
+
+if [[ -z "$PROJECT_SLUG" ]]; then
+  if [[ "$USE_DEFAULTS" == "true" ]]; then
+    PROJECT_SLUG="${DETECTED_PROJECT_SLUG:-$DEFAULT_PROJECT_SLUG}"
+  else
+    build_project_choices "$SCRIPT_DIR/projects.json" "$DETECTED_PROJECT_SLUG" "$DEFAULT_PROJECT_SLUG"
+    PROJECT_SLUG="$(
+      prompt_numbered_choice \
+        "kb: selecione o projeto:" \
+        0 \
+        PROJECT_OPTION_VALUES \
+        PROJECT_OPTION_LABELS
+    )"
+  fi
+fi
+
+PROJECT_SLUG="$(slugify "${PROJECT_SLUG:-$DEFAULT_PROJECT_SLUG}")"
 if [[ -z "$PROJECT_SLUG" ]]; then
   PROJECT_SLUG="inbox"
 fi

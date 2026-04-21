@@ -5,7 +5,7 @@ Fluxo oficial: **remote-first** via webhook no n8n usando um comando único.
 ## Comando oficial
 
 ```bash
-kb "<texto livre>" [--path /caminho/arquivo] [--project slug] [--kind manual_note|bug|resume|article|daily] [--tags a,b] [--yes]
+kb "<texto livre>" [--path /caminho/arquivo] [--project slug] [--kind manual_note|bug|resume|article|daily] [--tags a,b] [--default]
 ```
 
 Exemplos:
@@ -15,6 +15,8 @@ kb "corrigi timeout no webhook"
 kb "erro 401 no webhook" --kind bug --project n8n-automations
 kb "referencia do parser" --path ./knowledge-base/process-event-v2.mjs --tags parser,ingestion
 ```
+
+Se `--kind` ou `--project` nao forem informados, o `kb` pergunta no terminal um parametro por vez e lista as opcoes numeradas para selecao. Use `--default` para aceitar a sugestao automatica sem interacao.
 
 ## Política de anexos
 
