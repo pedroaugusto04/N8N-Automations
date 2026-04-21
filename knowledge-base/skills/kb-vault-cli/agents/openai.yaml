@@ -1,4 +1,0 @@
-interface:
-  display_name: "KB Vault CLI"
-  short_description: "Executar comando unico kb remote-first"
-  default_prompt: "Classifique o pedido e execute apenas o comando oficial: kb \"<texto livre>\" [--path /arquivo] [--project slug] [--kind manual_note|bug|resume|article|daily] [--tags a,b] [--yes]. Nunca use comandos legados e nunca escreva notas localmente."
