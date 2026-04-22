@@ -24,6 +24,18 @@ const timeFormatter = new Intl.DateTimeFormat('en-GB', {
   hour12: false,
 });
 
+function getNow() {
+  const override = String(process.env.KB_REMINDER_NOW || '').trim();
+  if (!override) {
+    return new Date();
+  }
+  const parsed = new Date(override);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error('invalid_reminder_now');
+  }
+  return parsed;
+}
+
 function usage() {
   console.error('Usage: node reminders-dispatch.mjs daily|exact');
 }
@@ -141,7 +153,7 @@ async function writeState(state) {
 }
 
 function getSaoPauloNowParts() {
-  const now = new Date();
+  const now = getNow();
   return {
     date: dateFormatter.format(now),
     time: timeFormatter.format(now),
@@ -202,7 +214,8 @@ async function main() {
 
   const currentMinute = `${date}T${time}`;
   const due = reminders.filter((reminder) => {
-    if (!reminder.reminderAt || !reminder.reminderAt.startsWith(currentMinute)) {
+    const scheduledMinute = String(reminder.reminderAt || '').slice(0, 16);
+    if (!scheduledMinute || scheduledMinute > currentMinute) {
       return false;
     }
     const stateKey = `${reminder.id}:${reminder.reminderAt}`;
