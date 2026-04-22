@@ -79,6 +79,47 @@ function parseFrontmatter(content) {
   return frontmatter;
 }
 
+function escapeRegExp(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function normalizeText(value) {
+  return String(value || '')
+    .replace(/\[\[([^|\]]+)\|([^\]]+)\]\]/g, '$2')
+    .replace(/\[\[([^\]]+)\]\]/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extractHeading(content) {
+  const match = String(content || '').match(/^#\s+(.+)$/m);
+  return normalizeText(match?.[1] || '');
+}
+
+function extractSection(content, heading) {
+  const pattern = new RegExp(`^## ${escapeRegExp(heading)}\\n([\\s\\S]*?)(?=\\n## |$)`, 'm');
+  const match = String(content || '').match(pattern);
+  return normalizeText(match?.[1] || '');
+}
+
+function formatReminderEntry(reminder, { includeSchedule = false } = {}) {
+  const lines = [];
+  lines.push(`[${reminder.project}] ${reminder.title}`);
+  if (includeSchedule) {
+    const schedule = reminder.reminderTime
+      ? `${reminder.reminderDate} ${reminder.reminderTime}`
+      : `${reminder.reminderDate} (sem horario exato)`;
+    lines.push(`Agendado para: ${schedule}`);
+  }
+  if (reminder.description) {
+    lines.push(`Descricao: ${reminder.description}`);
+  }
+  if (reminder.context && reminder.context !== reminder.description) {
+    lines.push(`Contexto: ${reminder.context}`);
+  }
+  return lines.join('\n');
+}
+
 async function listMarkdownFiles(dirPath) {
   let entries = [];
   try {
@@ -113,6 +154,8 @@ async function loadReminders() {
     if (status === 'resolved' || status === 'archived') {
       continue;
     }
+    const rawTitle = extractHeading(content);
+    const title = rawTitle.replace(/^Reminder\s+/i, '').trim() || path.basename(filePath, '.md');
     reminders.push({
       id: String(frontmatter.id || path.basename(filePath, '.md')).trim(),
       project: String(frontmatter.project || 'inbox').trim(),
@@ -122,7 +165,9 @@ async function loadReminders() {
       reminderTime: String(frontmatter.reminder_time || '').trim(),
       reminderAt: String(frontmatter.reminder_at || '').trim(),
       relativePath: path.relative(vaultPath, filePath).replace(/\\/g, '/'),
-      title: path.basename(filePath, '.md'),
+      title,
+      description: extractSection(content, 'O que lembrar'),
+      context: extractSection(content, 'Contexto'),
     });
   }
   return reminders.sort((left, right) => {
@@ -163,20 +208,17 @@ function getSaoPauloNowParts() {
 function buildDailyMessage(reminders, currentDate) {
   const lines = ['Lembretes ativos', `Data: ${currentDate}`, ''];
   for (const reminder of reminders) {
-    const schedule = reminder.reminderTime
-      ? `${reminder.reminderDate} ${reminder.reminderTime}`
-      : `${reminder.reminderDate} (sem horario exato)`;
-    lines.push(`- [${reminder.project}] ${schedule} | ${reminder.title}`);
+    lines.push(formatReminderEntry(reminder, { includeSchedule: true }), '');
   }
-  return lines.join('\n');
+  return lines.join('\n').trim();
 }
 
 function buildExactMessage(reminders, currentDate, currentTime) {
   const lines = ['Lembrete do momento', `Agora: ${currentDate} ${currentTime}`, ''];
   for (const reminder of reminders) {
-    lines.push(`- [${reminder.project}] ${reminder.title}`);
+    lines.push(formatReminderEntry(reminder), '');
   }
-  return lines.join('\n');
+  return lines.join('\n').trim();
 }
 
 async function main() {
