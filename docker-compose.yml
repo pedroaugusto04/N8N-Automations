@@ -9,6 +9,7 @@ services:
       - .env
     environment:
       HOME: /home/node
+      TZ: ${GENERIC_TIMEZONE:-America/Sao_Paulo}
       KB_OPENCODE_MODEL: ${KB_OPENCODE_MODEL}
       KB_AGENT_SERVER_HOST: 0.0.0.0
       KB_AGENT_SERVER_PORT: 8787
@@ -40,6 +41,7 @@ services:
       - .env
     environment:
       NODE_ENV: ${NODE_ENV:-production}
+      TZ: ${GENERIC_TIMEZONE:-America/Sao_Paulo}
       N8N_HOST: ${N8N_HOST}
       N8N_PROTOCOL: ${N8N_PROTOCOL:-https}
       N8N_PORT: ${N8N_PORT:-5678}
