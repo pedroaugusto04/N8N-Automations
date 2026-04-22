@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --canvas: #f5efe4;
+  --canvas-strong: #fff9f0;
+  --ink: #181715;
+  --muted: #6e665c;
+  --line: rgba(24, 23, 21, 0.12);
+  --accent: #b16946;
+  --accent-soft: rgba(177, 105, 70, 0.14);
+  --forest: #294b42;
+  --gold: #c8952d;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  background:
+    radial-gradient(circle at top left, rgba(200, 149, 45, 0.18), transparent 34%),
+    radial-gradient(circle at top right, rgba(41, 75, 66, 0.18), transparent 28%),
+    linear-gradient(180deg, #f8f1e7 0%, #efe5d5 50%, #f4eee4 100%);
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--ink);
+  font-family: "Avenir Next", "Trebuchet MS", "Segoe UI", sans-serif;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.28)),
+    radial-gradient(circle at 15% 20%, rgba(177, 105, 70, 0.12), transparent 24%),
+    radial-gradient(circle at 85% 12%, rgba(41, 75, 66, 0.12), transparent 22%);
+}
+
+a {
+  color: inherit;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+::selection {
+  background: rgba(177, 105, 70, 0.18);
+}
+
+.paper-panel {
+  background: rgba(255, 249, 240, 0.88);
+  border: 1px solid var(--line);
+  box-shadow: 0 24px 60px rgba(24, 23, 21, 0.12);
+  backdrop-filter: blur(14px);
+}
+
+.field-shell {
+  border: 1px solid rgba(24, 23, 21, 0.12);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.field-shell:focus-within {
+  border-color: rgba(177, 105, 70, 0.6);
+  box-shadow: 0 0 0 4px rgba(177, 105, 70, 0.12);
+}
+
+.field-input {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  outline: none;
+}
+
+.field-input::placeholder {
+  color: rgba(24, 23, 21, 0.42);
+}
