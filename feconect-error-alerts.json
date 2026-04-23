@@ -39,7 +39,7 @@
       },
       {
         "parameters": {
-          "jsCode": "const stdout = String(items[0]?.json?.stdout ?? items[0]?.json?.data ?? '');\nconst stripAnsi = (value) => value.replace(/\\u001b\\[[0-9;]*m/g, '');\nconst lines = stdout\n  .split('\\n')\n  .map((line) => stripAnsi(line).trim())\n  .filter(Boolean);\n\nconst benignPatterns = [\n  /get \\/metrics/i,\n  /nenhum evento elegivel para replay/i,\n  /no email outbox events eligible for replay/i,\n  /executando replay de eventos de webhook pendentes\\/falhos/i,\n];\n\nconst criticalPatterns = [\n  /\"level\":\"error\"/i,\n  /\"severity\":\"error\"/i,\n  /\\b(error|erro|fatal|panic|critical|crit|exception|uncaught)\\b/i,\n  /\\b(falha|falhou|failed|failure)\\b/i,\n  /\\b(timeout|timed out|refused|unavailable)\\b/i,\n];\n\nconst interesting = [];\nfor (const line of lines) {\n  if (benignPatterns.some((pattern) => pattern.test(line))) {\n    continue;\n  }\n\n  const lower = line.toLowerCase();\n  const isStructuredWarn = lower.includes('\"level\":\"warn\"') || lower.includes('\"severity\":\"warn\"');\n  const hasCriticalSignal = criticalPatterns.some((pattern) => pattern.test(line));\n\n  if (!hasCriticalSignal && !isStructuredWarn) {\n    continue;\n  }\n\n  if (isStructuredWarn && !hasCriticalSignal) {\n    continue;\n  }\n\n  interesting.push(line);\n}\n\nconst dedup = [...new Set(interesting)].slice(0, 10);\nconst hasAlerts = dedup.length > 0;\nconst signature = JSON.stringify(dedup);\nconst now = Date.now();\nconst cooldownMs = 30 * 60 * 1000;\nconst store = typeof $getWorkflowStaticData === 'function' ? $getWorkflowStaticData('global') : null;\n\nif (!hasAlerts) {\n  if (store) {\n    delete store.lastAlertSignature;\n    delete store.lastAlertSentAt;\n  }\n  return [];\n}\n\nif (store) {\n  const lastSignature = String(store.lastAlertSignature ?? '');\n  const lastSentAt = Number(store.lastAlertSentAt ?? 0);\n  const withinCooldown = lastSignature === signature && lastSentAt > 0 && now - lastSentAt < cooldownMs;\n  if (withinCooldown) {\n    return [];\n  }\n  store.lastAlertSignature = signature;\n  store.lastAlertSentAt = now;\n}\n\nconst message = [\n  'Alerta FeConect',\n  '',\n  'Erros recentes nos containers:',\n  '',\n  ...dedup.map((line) => `- ${line}`),\n].join('\\n');\n\nreturn [{ json: { hasAlerts: true, alerts: dedup, message } }];"
+          "jsCode": "const TELEGRAM_MAX_LENGTH = 3900;\nconst LINE_MAX_LENGTH = 280;\nconst stdout = String(items[0]?.json?.stdout ?? items[0]?.json?.data ?? '');\nconst stripAnsi = (value) => value.replace(/\\u001b\\[[0-9;]*m/g, '');\nconst sanitizeLine = (value) => stripAnsi(String(value || ''))\n  .replace(/[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F]/g, ' ')\n  .replace(/\\s+/g, ' ')\n  .trim();\nconst shorten = (value, max = LINE_MAX_LENGTH) => value.length > max ? `${value.slice(0, Math.max(max - 3, 0)).trimEnd()}...` : value;\nconst truncateMessage = (value, max = TELEGRAM_MAX_LENGTH) => {\n  const text = String(value || '').trim();\n  if (text.length <= max) {\n    return text;\n  }\n  return `${text.slice(0, Math.max(max - 35, 0)).trimEnd()}\\n\\n...alerta cortado para caber no Telegram.`;\n};\nconst lines = stdout\n  .split('\\n')\n  .map((line) => sanitizeLine(line))\n  .filter(Boolean);\n\nconst benignPatterns = [\n  /get \\/metrics/i,\n  /nenhum evento elegivel para replay/i,\n  /no email outbox events eligible for replay/i,\n  /executando replay de eventos de webhook pendentes\\/falhos/i,\n];\n\nconst criticalPatterns = [\n  /\"level\":\"error\"/i,\n  /\"severity\":\"error\"/i,\n  /\\b(error|erro|fatal|panic|critical|crit|exception|uncaught)\\b/i,\n  /\\b(falha|falhou|failed|failure)\\b/i,\n  /\\b(timeout|timed out|refused|unavailable)\\b/i,\n];\n\nconst interesting = [];\nfor (const line of lines) {\n  if (benignPatterns.some((pattern) => pattern.test(line))) {\n    continue;\n  }\n\n  const lower = line.toLowerCase();\n  const isStructuredWarn = lower.includes('\"level\":\"warn\"') || lower.includes('\"severity\":\"warn\"');\n  const hasCriticalSignal = criticalPatterns.some((pattern) => pattern.test(line));\n\n  if (!hasCriticalSignal && !isStructuredWarn) {\n    continue;\n  }\n\n  if (isStructuredWarn && !hasCriticalSignal) {\n    continue;\n  }\n\n  interesting.push(shorten(line));\n}\n\nconst dedup = [...new Set(interesting)].slice(0, 10);\nconst hasAlerts = dedup.length > 0;\nconst signature = JSON.stringify(dedup);\nconst now = Date.now();\nconst cooldownMs = 30 * 60 * 1000;\nconst store = typeof $getWorkflowStaticData === 'function' ? $getWorkflowStaticData('global') : null;\n\nif (!hasAlerts) {\n  if (store) {\n    delete store.lastAlertSignature;\n    delete store.lastAlertSentAt;\n  }\n  return [];\n}\n\nif (store) {\n  const lastSignature = String(store.lastAlertSignature ?? '');\n  const lastSentAt = Number(store.lastAlertSentAt ?? 0);\n  const withinCooldown = lastSignature === signature && lastSentAt > 0 && now - lastSentAt < cooldownMs;\n  if (withinCooldown) {\n    return [];\n  }\n  store.lastAlertSignature = signature;\n  store.lastAlertSentAt = now;\n}\n\nconst message = truncateMessage([\n  'Alerta FeConect',\n  '',\n  'Erros recentes nos containers:',\n  '',\n  ...dedup.map((line) => `- ${line}`),\n].join('\\n'));\n\nreturn [{\n  json: {\n    hasAlerts: true,\n    alerts: dedup,\n    message,\n  },\n}];"
         },
         "name": "Extract Error Alerts",
         "type": "n8n-nodes-base.code",
@@ -74,8 +74,7 @@
           "chatId": "={{ $env.FECONECT_TELEGRAM_CHAT_ID }}",
           "text": "={{ $json.message }}",
           "additionalFields": {
-            "appendAttribution": false,
-            "parse_mode": "Markdown"
+            "appendAttribution": false
           }
         },
         "name": "Telegram Error Alert",
@@ -84,7 +83,13 @@
         "position": [
           240,
           256
-        ]
+        ],
+        "credentials": {
+          "telegramApi": {
+            "id": "tgCredFecon24001",
+            "name": "Telegram FeConect"
+          }
+        }
       }
     ],
     "connections": {

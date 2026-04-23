@@ -40,7 +40,7 @@
       },
       {
         "parameters": {
-          "jsCode": "const row = items[0]?.json ?? {};\nconst currentOk = Number(row.current_ok ?? 0);\nconst avgOk = Number(row.avg_ok ?? 0);\nconst currentFailed = Number(row.current_failed ?? 0);\nconst avgFailed = Number(row.avg_failed ?? 0);\n\nconst alerts = [];\nif (avgOk >= 5 && currentOk < avgOk * 0.4) {\n  alerts.push(`queda anormal de pagamentos: janela atual=${currentOk}, baseline=${avgOk.toFixed(2)}`);\n}\nif (currentFailed >= 3 && currentFailed > Math.max(avgFailed * 2, 3)) {\n  alerts.push(`alta anormal de webhooks com falha: janela atual=${currentFailed}, baseline=${avgFailed.toFixed(2)}`);\n}\n\nif (alerts.length === 0) {\n  const store = typeof $getWorkflowStaticData === 'function' ? $getWorkflowStaticData('global') : null;\n  if (store) {\n    delete store.lastAlertSignature;\n    delete store.lastAlertSentAt;\n  }\n  return [];\n}\n\nconst signature = JSON.stringify(alerts);\nconst now = Date.now();\nconst cooldownMs = 60 * 60 * 1000;\nconst store = typeof $getWorkflowStaticData === 'function' ? $getWorkflowStaticData('global') : null;\n\nif (store) {\n  const lastSignature = String(store.lastAlertSignature ?? '');\n  const lastSentAt = Number(store.lastAlertSentAt ?? 0);\n  const withinCooldown = lastSignature === signature && lastSentAt > 0 && now - lastSentAt < cooldownMs;\n\n  if (withinCooldown) {\n    return [];\n  }\n\n  store.lastAlertSignature = signature;\n  store.lastAlertSentAt = now;\n}\n\nconst message = [\n  'Alerta FeConect: comportamento anormal detectado',\n  '',\n  ...alerts.map((line) => `- ${line}`),\n  '',\n  `metricas: pagamentos_ok_hora=${currentOk} (baseline ${avgOk.toFixed(2)}), webhooks_falhos_hora=${currentFailed} (baseline ${avgFailed.toFixed(2)})`,\n].join('\\n');\n\nreturn [{ json: { hasAlerts: true, alerts, message, metrics: row } }];"
+          "jsCode": "const TELEGRAM_MAX_LENGTH = 3900;\nconst truncateMessage = (value, max = TELEGRAM_MAX_LENGTH) => {\n  const text = String(value || '').trim();\n  if (text.length <= max) {\n    return text;\n  }\n  return `${text.slice(0, Math.max(max - 35, 0)).trimEnd()}\\n\\n...alerta cortado para caber no Telegram.`;\n};\n\nconst row = items[0]?.json ?? {};\nconst currentOk = Number(row.current_ok ?? 0);\nconst avgOk = Number(row.avg_ok ?? 0);\nconst currentFailed = Number(row.current_failed ?? 0);\nconst avgFailed = Number(row.avg_failed ?? 0);\n\nconst alerts = [];\nif (avgOk >= 5 && currentOk < avgOk * 0.4) {\n  alerts.push(`queda anormal de pagamentos: janela atual=${currentOk}, baseline=${avgOk.toFixed(2)}`);\n}\nif (currentFailed >= 3 && currentFailed > Math.max(avgFailed * 2, 3)) {\n  alerts.push(`alta anormal de webhooks com falha: janela atual=${currentFailed}, baseline=${avgFailed.toFixed(2)}`);\n}\n\nif (alerts.length === 0) {\n  const store = typeof $getWorkflowStaticData === 'function' ? $getWorkflowStaticData('global') : null;\n  if (store) {\n    delete store.lastAlertSignature;\n    delete store.lastAlertSentAt;\n  }\n  return [];\n}\n\nconst signature = JSON.stringify(alerts);\nconst now = Date.now();\nconst cooldownMs = 60 * 60 * 1000;\nconst store = typeof $getWorkflowStaticData === 'function' ? $getWorkflowStaticData('global') : null;\n\nif (store) {\n  const lastSignature = String(store.lastAlertSignature ?? '');\n  const lastSentAt = Number(store.lastAlertSentAt ?? 0);\n  const withinCooldown = lastSignature === signature && lastSentAt > 0 && now - lastSentAt < cooldownMs;\n\n  if (withinCooldown) {\n    return [];\n  }\n\n  store.lastAlertSignature = signature;\n  store.lastAlertSentAt = now;\n}\n\nconst message = truncateMessage([\n  'Alerta FeConect: comportamento anormal detectado',\n  '',\n  ...alerts.map((line) => `- ${line}`),\n  '',\n  `metricas: pagamentos_ok_hora=${currentOk} (baseline ${avgOk.toFixed(2)}), webhooks_falhos_hora=${currentFailed} (baseline ${avgFailed.toFixed(2)})`,\n].join('\\n'));\n\nreturn [{\n  json: {\n    hasAlerts: true,\n    alerts,\n    message,\n    metrics: row,\n  },\n}];"
         },
         "name": "Detect Anomalies",
         "type": "n8n-nodes-base.code",
@@ -84,7 +84,13 @@
         "position": [
           0,
           0
-        ]
+        ],
+        "credentials": {
+          "telegramApi": {
+            "id": "tgCredFecon24001",
+            "name": "Telegram FeConect"
+          }
+        }
       }
     ],
     "connections": {
@@ -132,10 +138,6 @@
           ]
         ]
       }
-    },
-    "settings": {
-      "executionOrder": "v1",
-      "binaryMode": "separate"
     },
     "settings": {
       "executionOrder": "v1",

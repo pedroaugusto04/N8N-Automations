@@ -39,7 +39,7 @@
       },
       {
         "parameters": {
-          "jsCode": "const payload = (() => {\n  try {\n    return JSON.parse(String(items[0]?.json?.stdout ?? '{}'));\n  } catch {\n    return {};\n  }\n})();\n\nconst toNumber = (value, digits = 2) => {\n  const parsed = Number(value);\n  return Number.isFinite(parsed) ? parsed.toFixed(digits) : 'n/d';\n};\nconst formatLoad = (value) => Array.isArray(value) && value.length === 3 ? value.join(' | ') : 'n/d';\nconst formatTop = (value) => Array.isArray(value) && value.length > 0\n  ? value.map((entry) => `${entry.command} pid=${entry.pid} cpu=${entry.cpu_pct}% mem=${entry.mem_pct}%`).join('; ')\n  : 'n/d';\n\nconst messageLines = [\n  'Resumo VPS FeConect',\n  '',\n  `Status da VPS: ${String(payload.vps_status ?? 'OFF').toUpperCase()}`,\n  `- checado em: ${payload.checked_at ?? 'n/d'}`,\n  `- uptime: ${payload.uptime_human ?? 'n/d'}`,\n  `- load average: ${formatLoad(payload.load_avg)}`,\n  '',\n  'Capacidade atual:',\n  `- CPU: ${toNumber(payload.cpu_usage_pct)}% em ${payload.cpu_cores ?? 'n/d'} cores`,\n  `- RAM: ${toNumber(payload.ram_used_gb)} GB / ${toNumber(payload.ram_total_gb)} GB (${toNumber(payload.ram_usage_pct)}%)`,\n  `- Swap: ${toNumber(payload.swap_used_gb)} GB / ${toNumber(payload.swap_total_gb)} GB (${toNumber(payload.swap_usage_pct)}%)`,\n  `- Disco /: ${toNumber(payload.disk_used_gb)} GB / ${toNumber(payload.disk_total_gb)} GB (${toNumber(payload.disk_usage_pct)}%)`,\n  `- Disco livre /: ${toNumber(payload.disk_free_gb)} GB | inodes usados: ${payload.inode_usage_pct ?? 'n/d'}`,\n  '',\n  'Containers e processos:',\n  `- containers Docker em execucao: ${payload.docker_running_containers ?? 0}`,\n  `- containers reiniciando: ${payload.docker_restart_count ?? 0}`,\n  `- top processos por CPU: ${formatTop(payload.top_processes)}`,\n];\n\nif (payload.meta_error) {\n  messageLines.push('', `- observacao: coleta parcial (${payload.meta_error})`);\n}\n\nreturn [{\n  json: {\n    message: messageLines.join('\\n'),\n    summary: payload,\n  },\n}];\n"
+          "jsCode": "const TELEGRAM_MAX_LENGTH = 3900;\nconst truncateMessage = (value, max = TELEGRAM_MAX_LENGTH) => {\n  const text = String(value || '').trim();\n  if (text.length <= max) {\n    return text;\n  }\n  return `${text.slice(0, Math.max(max - 37, 0)).trimEnd()}\\n\\n...resumo cortado para caber no Telegram.`;\n};\n\nconst payload = (() => {\n  try {\n    return JSON.parse(String(items[0]?.json?.stdout ?? '{}'));\n  } catch {\n    return {};\n  }\n})();\n\nconst toNumber = (value, digits = 2) => {\n  const parsed = Number(value);\n  return Number.isFinite(parsed) ? parsed.toFixed(digits) : 'n/d';\n};\nconst formatLoad = (value) => Array.isArray(value) && value.length === 3 ? value.join(' | ') : 'n/d';\nconst formatTop = (value) => Array.isArray(value) && value.length > 0\n  ? value.map((entry) => `${entry.command} pid=${entry.pid} cpu=${entry.cpu_pct}% mem=${entry.mem_pct}%`).join('; ')\n  : 'n/d';\n\nconst messageLines = [\n  'Resumo VPS FeConect',\n  '',\n  `Status da VPS: ${String(payload.vps_status ?? 'OFF').toUpperCase()}`,\n  `- checado em: ${payload.checked_at ?? 'n/d'}`,\n  `- uptime: ${payload.uptime_human ?? 'n/d'}`,\n  `- load average: ${formatLoad(payload.load_avg)}`,\n  '',\n  'Capacidade atual:',\n  `- CPU: ${toNumber(payload.cpu_usage_pct)}% em ${payload.cpu_cores ?? 'n/d'} cores`,\n  `- RAM: ${toNumber(payload.ram_used_gb)} GB / ${toNumber(payload.ram_total_gb)} GB (${toNumber(payload.ram_usage_pct)}%)`,\n  `- Swap: ${toNumber(payload.swap_used_gb)} GB / ${toNumber(payload.swap_total_gb)} GB (${toNumber(payload.swap_usage_pct)}%)`,\n  `- Disco /: ${toNumber(payload.disk_used_gb)} GB / ${toNumber(payload.disk_total_gb)} GB (${toNumber(payload.disk_usage_pct)}%)`,\n  `- Disco livre /: ${toNumber(payload.disk_free_gb)} GB | inodes usados: ${payload.inode_usage_pct ?? 'n/d'}`,\n  '',\n  'Containers e processos:',\n  `- containers Docker em execucao: ${payload.docker_running_containers ?? 0}`,\n  `- containers reiniciando: ${payload.docker_restart_count ?? 0}`,\n  `- top processos por CPU: ${formatTop(payload.top_processes)}`,\n];\n\nif (payload.meta_error) {\n  messageLines.push('', `- observacao: coleta parcial (${payload.meta_error})`);\n}\n\nreturn [{\n  json: {\n    message: truncateMessage(messageLines.join('\\n')),\n    summary: payload,\n  },\n}];"
         },
         "name": "Format VPS Message",
         "type": "n8n-nodes-base.code",
@@ -61,7 +61,13 @@
         "position": [
           832,
           0
-        ]
+        ],
+        "credentials": {
+          "telegramApi": {
+            "id": "tgCredVps2400001",
+            "name": "Telegram VPS"
+          }
+        }
       }
     ],
     "connections": {
