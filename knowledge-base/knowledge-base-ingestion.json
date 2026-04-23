@@ -129,6 +129,7 @@
           1280,
           208
         ],
+        "onError": "continueRegularOutput",
         "credentials": {
           "telegramApi": {
             "id": "tgCredVps2400001",
