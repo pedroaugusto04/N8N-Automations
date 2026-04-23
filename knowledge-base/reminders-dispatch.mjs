@@ -9,6 +9,7 @@ const statePath = process.env.KB_REMINDER_STATE_PATH || path.join(archivePath, '
 const remindersRoot = path.join(vaultPath, '70 Reminders');
 
 const mode = String(process.argv[2] || '').trim().toLowerCase();
+const modeArg = String(process.argv[3] || '').trim();
 
 const dateFormatter = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'America/Sao_Paulo',
@@ -37,7 +38,7 @@ function getNow() {
 }
 
 function usage() {
-  console.error('Usage: node reminders-dispatch.mjs daily|exact');
+  console.error('Usage: node reminders-dispatch.mjs daily|exact|mark-sent');
 }
 
 function parseFrontmatterValue(rawValue) {
@@ -77,6 +78,11 @@ function parseFrontmatter(content) {
     frontmatter[key] = parseFrontmatterValue(value);
   }
   return frontmatter;
+}
+
+function extractFrontmatterBlock(content) {
+  const match = String(content || '').match(/^---\n([\s\S]*?)\n---\n?/);
+  return match ? match[1] : '';
 }
 
 function escapeRegExp(value) {
@@ -150,8 +156,8 @@ async function loadReminders() {
     if (String(frontmatter.type || '').trim() !== 'reminder') {
       continue;
     }
-    const status = String(frontmatter.status || '').trim();
-    if (status === 'resolved' || status === 'archived') {
+    const status = String(frontmatter.status || '').trim().toLowerCase();
+    if (!['active', 'open'].includes(status)) {
       continue;
     }
     const rawTitle = extractHeading(content);
@@ -164,6 +170,7 @@ async function loadReminders() {
       reminderDate: String(frontmatter.reminder_date || '').trim(),
       reminderTime: String(frontmatter.reminder_time || '').trim(),
       reminderAt: String(frontmatter.reminder_at || '').trim(),
+      filePath,
       relativePath: path.relative(vaultPath, filePath).replace(/\\/g, '/'),
       title,
       description: extractSection(content, 'O que lembrar'),
@@ -221,10 +228,46 @@ function buildExactMessage(reminders, currentDate, currentTime) {
   return lines.join('\n').trim();
 }
 
+async function updateReminderStatus(filePath, nextStatus) {
+  const content = await fs.readFile(filePath, 'utf8');
+  const frontmatterBlock = extractFrontmatterBlock(content);
+  if (!frontmatterBlock) {
+    return;
+  }
+  let updatedFrontmatter;
+  if (/^status:\s*.+$/m.test(frontmatterBlock)) {
+    updatedFrontmatter = frontmatterBlock.replace(/^status:\s*.+$/m, `status: "${nextStatus}"`);
+  } else {
+    updatedFrontmatter = `${frontmatterBlock}\nstatus: "${nextStatus}"`;
+  }
+  const nextContent = content.replace(/^---\n[\s\S]*?\n---\n?/, `---\n${updatedFrontmatter}\n---\n`);
+  await fs.writeFile(filePath, nextContent, 'utf8');
+}
+
+function decodeReminderFilePaths(rawValue) {
+  if (!rawValue) {
+    return [];
+  }
+  const decoded = Buffer.from(rawValue, 'base64').toString('utf8');
+  const parsed = JSON.parse(decoded);
+  return Array.isArray(parsed) ? parsed.map((value) => String(value || '').trim()).filter(Boolean) : [];
+}
+
 async function main() {
-  if (!['daily', 'exact'].includes(mode)) {
+  if (!['daily', 'exact', 'mark-sent'].includes(mode)) {
     usage();
     process.exit(1);
+  }
+
+  if (mode === 'mark-sent') {
+    const filePaths = decodeReminderFilePaths(modeArg);
+    if (filePaths.length === 0) {
+      process.stdout.write(JSON.stringify({ ok: true, shouldSend: false, mode, updated: 0 }));
+      return;
+    }
+    await Promise.all(filePaths.map((filePath) => updateReminderStatus(filePath, 'sent')));
+    process.stdout.write(JSON.stringify({ ok: true, shouldSend: false, mode, updated: filePaths.length }));
+    return;
   }
 
   const { date, time } = getSaoPauloNowParts();
@@ -260,8 +303,7 @@ async function main() {
     if (!scheduledMinute || scheduledMinute > currentMinute) {
       return false;
     }
-    const stateKey = `${reminder.id}:${reminder.reminderAt}`;
-    return !state.exact[stateKey];
+    return true;
   });
 
   if (due.length === 0) {
@@ -269,9 +311,7 @@ async function main() {
     return;
   }
 
-  for (const reminder of due) {
-    state.exact[`${reminder.id}:${reminder.reminderAt}`] = new Date().toISOString();
-  }
+  await Promise.all(due.map((reminder) => updateReminderStatus(reminder.filePath, 'sent')));
   await writeState(state);
   process.stdout.write(
     JSON.stringify({
@@ -279,6 +319,8 @@ async function main() {
       shouldSend: true,
       mode,
       count: due.length,
+      reminderFiles: due.map((reminder) => reminder.filePath),
+      remindersArg: Buffer.from(JSON.stringify(due.map((reminder) => reminder.filePath)), 'utf8').toString('base64'),
       text: buildExactMessage(due, date, time),
     }),
   );

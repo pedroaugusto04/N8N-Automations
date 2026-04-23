@@ -212,6 +212,19 @@
       },
       {
         "parameters": {
+          "command": "=node /home/node/knowledge-base/reminders-dispatch.mjs mark-sent '{{$node[\"Parse Exact Result\"].json[\"remindersArg\"] || \"\"}}'"
+        },
+        "id": "6d051aed-f5eb-40d1-b4c4-cff2b3cb5682",
+        "name": "Mark Exact Reminders Sent",
+        "type": "n8n-nodes-base.executeCommand",
+        "typeVersion": 1,
+        "position": [
+          1200,
+          320
+        ]
+      },
+      {
+        "parameters": {
           "conditions": {
             "options": {
               "caseSensitive": true,
@@ -418,6 +431,17 @@
           [
             {
               "node": "Send Exact Reminder",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Send Exact Reminder": {
+        "main": [
+          [
+            {
+              "node": "Mark Exact Reminders Sent",
               "type": "main",
               "index": 0
             }
