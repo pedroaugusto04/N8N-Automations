@@ -25,7 +25,7 @@
       },
       {
         "parameters": {
-          "jsCode": "const item = $input.first() || {};\nconst json = item.json || {};\nconst body = json.body && typeof json.body === 'object' ? json.body : json;\nconst headers = json.headers && typeof json.headers === 'object' ? json.headers : {};\nconst binaries = item.binary && typeof item.binary === 'object' ? item.binary : {};\nconst payload = {\n  headers,\n  body,\n  binaries,\n  raw_body_b64: binaries?.data?.data || '',\n  received_at: new Date().toISOString(),\n};\nconst payloadB64 = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64');\nconst payloadFilePath = `/tmp/kb-payload-${Date.now()}-${Math.random().toString(16).slice(2)}.b64`;\nconst payloadFileBinary = Buffer.from(payloadB64, 'utf8').toString('base64');\nreturn [{\n  json: {\n    payload_file_path: payloadFilePath,\n    incoming_body: body,\n  },\n  binary: {\n    payload_file: {\n      data: payloadFileBinary,\n      fileName: 'kb-payload.b64',\n      mimeType: 'text/plain',\n    },\n  },\n}];"
+          "jsCode": "const item = $input.first() || {};\nconst json = item.json || {};\nconst body = json.body && typeof json.body === 'object' ? json.body : json;\nconst headers = json.headers && typeof json.headers === 'object' ? json.headers : {};\nconst binaries = item.binary && typeof item.binary === 'object' ? item.binary : {};\nconst payload = {\n  headers,\n  body,\n  binaries,\n  raw_body_b64: binaries?.data?.data || '',\n  received_at: new Date().toISOString(),\n};\nconst payloadB64 = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64');\nconst payloadFilePath = `/tmp/kb-payload-${Date.now()}-${Math.random().toString(16).slice(2)}.b64`;\nreturn [{\n  json: {\n    payload_file_path: payloadFilePath,\n    incoming_body: body,\n    payload_b64: payloadB64\n  }\n}];"
         },
         "id": "fc811629-c804-48d4-b5d8-b63786a0d6aa",
         "name": "Prepare Payload",
@@ -38,7 +38,7 @@
       },
       {
         "parameters": {
-          "command": "=echo '{{$binary.payload_file.data}}' > '{{$json.payload_file_path}}' && node /home/node/knowledge-base/process-event-v2.mjs --file '{{$json.payload_file_path}}'; rm -f '{{$json.payload_file_path}}'"
+          "command": "=echo '{{$json.payload_b64}}' > '{{$json.payload_file_path}}' && node /home/node/knowledge-base/process-event-v2.mjs --file '{{$json.payload_file_path}}'; rm -f '{{$json.payload_file_path}}'"
         },
         "id": "4af87b4c-7f14-4556-9b9f-c77ffbd3c75c",
         "name": "Run Processor",
