@@ -19,6 +19,8 @@ Use this mode to decouple the knowledge-base ingestion flow from individual repo
 - `KB_GEMINI_MODEL`: optional, defaults to `gemini-1.5-flash`
 - `KB_ENABLE_GIT_PUSH`: optional, when `true` the vault clone will push to `origin`
 - `KB_VAULT_REMOTE_URL`: optional remote URL for the knowledge vault repository
+- `KB_GITHUB_API_TOKEN`: optional, GitHub token with repo read access used to fetch real diffs for code review (falls back to `KB_VAULT_GIT_PUSH_TOKEN`)
+- `KB_MAX_DIFF_CHARS`: optional, max characters of diff to send to the AI (default `60000`)
 
 ## GitHub App configuration
 

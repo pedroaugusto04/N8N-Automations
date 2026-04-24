@@ -27,6 +27,8 @@ const gitUserEmail = (process.env.KB_VAULT_GIT_USER_EMAIL || 'knowledge-bot@exam
 const gitPushUsername = (process.env.KB_VAULT_GIT_PUSH_USERNAME || '').trim();
 const gitPushToken = (process.env.KB_VAULT_GIT_PUSH_TOKEN || '').trim();
 const ignoredReposEnv = (process.env.KB_IGNORE_REPOS || '').trim();
+const githubApiToken = (process.env.KB_GITHUB_API_TOKEN || process.env.KB_VAULT_GIT_PUSH_TOKEN || '').trim();
+const maxDiffChars = Number(process.env.KB_MAX_DIFF_CHARS || 60000);
 const manualNoteKinds = new Set(['manual_note', 'bug', 'resume', 'article', 'daily']);
 const noteTypes = new Set(['event', 'knowledge', 'decision', 'incident', 'followup', 'project_summary']);
 const importanceLevels = new Set(['low', 'medium', 'high']);
@@ -469,6 +471,7 @@ function normalizeGithubPushPayload(payload, headers) {
   const compareUrl = String(payload?.compare || '').trim();
   const repositoryUrl = String(payload?.repository?.html_url || '').trim();
   const headSha = String(payload?.after || '').trim();
+  const beforeSha = String(payload?.before || '').trim();
   const headCommitUrl = String(payload?.head_commit?.url || (repositoryUrl && headSha ? `${repositoryUrl}/commit/${headSha}` : '')).trim();
 
   return {
@@ -481,6 +484,7 @@ function normalizeGithubPushPayload(payload, headers) {
     source_actor: trimParagraph(payload?.sender?.login, payload?.pusher?.name || 'github'),
     source: 'github_app',
     head_sha: headSha,
+    _before_sha: beforeSha,
     compare_url: compareUrl,
     workflow_url: '',
     repository_url: repositoryUrl,
@@ -1295,6 +1299,35 @@ function renderCommitsSection(commits) {
     .join('\n');
 }
 
+async function fetchGithubDiff(repo, beforeSha, afterSha) {
+  if (!githubApiToken || !repo || !beforeSha || !afterSha) {
+    return '';
+  }
+  if (/^0+$/.test(beforeSha)) {
+    return '';
+  }
+  try {
+    const url = `https://api.github.com/repos/${encodeURIComponent(repo.split('/')[0])}/${encodeURIComponent(repo.split('/')[1])}/compare/${beforeSha}...${afterSha}`;
+    const response = await fetch(url, {
+      headers: {
+        accept: 'application/vnd.github.v3.diff',
+        authorization: `Bearer ${githubApiToken}`,
+        'user-agent': 'knowledge-base-bot',
+      },
+    });
+    if (!response.ok) {
+      return '';
+    }
+    const diff = await response.text();
+    if (diff.length > maxDiffChars) {
+      return diff.slice(0, maxDiffChars) + '\n... (diff truncado por limite de tamanho)';
+    }
+    return diff;
+  } catch {
+    return '';
+  }
+}
+
 function buildFallbackAnalysis(event) {
   if (event.event_type === 'manual_note') {
     const summary = trimParagraph(event.raw_text, 'Manual note registered.');
@@ -1328,6 +1361,13 @@ function buildFallbackAnalysis(event) {
     impact: `Push registrado em ${event.branch || 'branch desconhecida'} com ${filesChanged} arquivo(s) alterado(s).`,
     risks: 'Sem analise de IA configurada. Revisar possiveis regressoes manualmente se a mudanca for sensivel.',
     nextSteps: 'Usar a nota como base para continuidade e complementar contexto manual quando necessario.',
+    codeReview: {
+      overall_quality: 'Sem analise de IA configurada.',
+      observations: ['Review automatico nao disponivel — IA nao configurada ou sem token GitHub.'],
+      suggestions: [],
+      potential_issues: [],
+      positive_highlights: [],
+    },
   };
 }
 
@@ -1366,8 +1406,36 @@ function buildPromptPayload(event) {
           diffstat: event.diffstat || {},
           files,
           commits,
+          diff: event._diff || '',
         };
   return promptPayload;
+}
+
+function buildCodeReviewSystemPrompt() {
+  return [
+    'Voce e um engenheiro de software senior fazendo code review.',
+    'Analise o diff e os commits do push abaixo e produza um review tecnico em portugues brasileiro.',
+    'Responda com JSON estrito contendo:',
+    '- "summary": string com resumo geral do que o push faz (1-2 frases)',
+    '- "overall_quality": string curta avaliando a qualidade geral (ex: "Boa", "Precisa atencao", "Excelente")',
+    '- "observations": array de strings com observacoes sobre o codigo (max 8)',
+    '- "suggestions": array de strings com sugestoes de melhoria (max 6)',
+    '- "potential_issues": array de strings com possiveis bugs ou problemas (max 6)',
+    '- "positive_highlights": array de strings com pontos positivos (max 4)',
+    'Se o diff estiver vazio ou for insuficiente, base sua analise nos nomes de arquivos e mensagens de commit.',
+    'Seja direto e pratico. Nao repita informacoes entre campos.',
+  ].join('\n');
+}
+
+function buildManualNoteSystemPrompt() {
+  return 'You produce concise engineering memory notes in Brazilian Portuguese. Respond with strict JSON containing summary, impact, risks, next_steps.';
+}
+
+function resolveSystemPrompt(event) {
+  if (event.event_type === 'github_push') {
+    return buildCodeReviewSystemPrompt();
+  }
+  return buildManualNoteSystemPrompt();
 }
 
 function parseJsonText(content) {
@@ -1379,7 +1447,25 @@ function parseJsonText(content) {
   return JSON.parse(cleaned || '{}');
 }
 
+function parseAiCodeReview(parsed, source) {
+  return {
+    source,
+    summary: parsed.summary,
+    impact: parsed.impact,
+    risks: parsed.risks,
+    nextSteps: parsed.next_steps || parsed.nextSteps,
+    codeReview: {
+      overall_quality: String(parsed.overall_quality || '').trim(),
+      observations: Array.isArray(parsed.observations) ? parsed.observations.map((e) => String(e || '').trim()).filter(Boolean) : [],
+      suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions.map((e) => String(e || '').trim()).filter(Boolean) : [],
+      potential_issues: Array.isArray(parsed.potential_issues) ? parsed.potential_issues.map((e) => String(e || '').trim()).filter(Boolean) : [],
+      positive_highlights: Array.isArray(parsed.positive_highlights) ? parsed.positive_highlights.map((e) => String(e || '').trim()).filter(Boolean) : [],
+    },
+  };
+}
+
 async function buildOpenAiAnalysis(event, promptPayload) {
+  const systemPrompt = resolveSystemPrompt(event);
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -1393,8 +1479,7 @@ async function buildOpenAiAnalysis(event, promptPayload) {
       messages: [
         {
           role: 'system',
-          content:
-            'You produce concise engineering memory notes in Brazilian Portuguese. Respond with strict JSON containing summary, impact, risks, next_steps.',
+          content: systemPrompt,
         },
         {
           role: 'user',
@@ -1411,6 +1496,9 @@ async function buildOpenAiAnalysis(event, promptPayload) {
   const data = await response.json();
   const content = data?.choices?.[0]?.message?.content;
   const parsed = parseJsonText(content);
+  if (event.event_type === 'github_push') {
+    return parseAiCodeReview(parsed, 'openai');
+  }
   return {
     source: 'openai',
     summary: parsed.summary,
@@ -1421,6 +1509,7 @@ async function buildOpenAiAnalysis(event, promptPayload) {
 }
 
 async function buildGeminiAnalysis(event, promptPayload) {
+  const systemPrompt = resolveSystemPrompt(event);
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`,
     {
@@ -1438,8 +1527,7 @@ async function buildGeminiAnalysis(event, promptPayload) {
             parts: [
               {
                 text: [
-                  'You produce concise engineering memory notes in Brazilian Portuguese.',
-                  'Respond with strict JSON containing summary, impact, risks, next_steps.',
+                  systemPrompt,
                   JSON.stringify(promptPayload),
                 ].join('\n'),
               },
@@ -1457,6 +1545,9 @@ async function buildGeminiAnalysis(event, promptPayload) {
   const data = await response.json();
   const content = data?.candidates?.[0]?.content?.parts?.[0]?.text;
   const parsed = parseJsonText(content);
+  if (event.event_type === 'github_push') {
+    return parseAiCodeReview(parsed, 'gemini');
+  }
   return {
     source: 'gemini',
     summary: parsed.summary,
@@ -1485,6 +1576,11 @@ async function buildAiAnalysis(event) {
     return buildFallbackAnalysis(event);
   }
 
+  // For push events, fetch the real diff from GitHub API and attach it to the event
+  if (event.event_type === 'github_push' && event.repo && event._before_sha && event.head_sha) {
+    event._diff = await fetchGithubDiff(event.repo, event._before_sha, event.head_sha);
+  }
+
   const promptPayload = buildPromptPayload(event);
   const base = buildFallbackAnalysis(event);
   let result;
@@ -1502,13 +1598,17 @@ async function buildAiAnalysis(event) {
     return base;
   }
 
-  return {
+  const merged = {
     source: result.source || provider,
     summary: trimParagraph(result.summary, base.summary),
     impact: trimParagraph(result.impact, base.impact),
     risks: trimParagraph(result.risks, base.risks),
     nextSteps: trimParagraph(result.nextSteps, base.nextSteps),
   };
+  if (result.codeReview) {
+    merged.codeReview = result.codeReview;
+  }
+  return merged;
 }
 
 async function buildAnalysis(event) {
@@ -1816,6 +1916,45 @@ function renderReminderOverview(event, noteFrontmatter) {
   ]);
 }
 
+function renderCodeReviewSection(codeReview) {
+  if (!codeReview) {
+    return [];
+  }
+  const sections = [];
+
+  sections.push(
+    renderCallout('abstract', `Qualidade geral: ${codeReview.overall_quality || 'N/A'}`, [
+      'Avaliacao automatica gerada por IA a partir do diff real do push.',
+    ]),
+  );
+
+  if (codeReview.observations && codeReview.observations.length > 0) {
+    sections.push('### Observacoes');
+    sections.push(...codeReview.observations.map((o) => `- ${o}`));
+    sections.push('');
+  }
+
+  if (codeReview.suggestions && codeReview.suggestions.length > 0) {
+    sections.push('### Sugestoes de melhoria');
+    sections.push(...codeReview.suggestions.map((s) => `- ${s}`));
+    sections.push('');
+  }
+
+  if (codeReview.potential_issues && codeReview.potential_issues.length > 0) {
+    sections.push('### Potenciais problemas');
+    sections.push(...codeReview.potential_issues.map((p) => `- ⚠️ ${p}`));
+    sections.push('');
+  }
+
+  if (codeReview.positive_highlights && codeReview.positive_highlights.length > 0) {
+    sections.push('### Destaques positivos');
+    sections.push(...codeReview.positive_highlights.map((h) => `- ✅ ${h}`));
+    sections.push('');
+  }
+
+  return sections;
+}
+
 function renderEventNote(event, analysis, noteFrontmatter, paths) {
   const frontmatter = renderFrontmatter(noteFrontmatter);
   const diffstatLine = event.diffstat?.summary || 'No diffstat available.';
@@ -1854,24 +1993,39 @@ function renderEventNote(event, analysis, noteFrontmatter, paths) {
           `- head_sha: ${event.head_sha || 'n/a'}`,
           '',
         ];
+
+  // For push events: replace summary/impact/risks/next_steps with code review
+  const isPush = event.event_type === 'github_push';
+  const analysisSections = isPush
+    ? [
+        '## Resumo',
+        analysis.summary,
+        '',
+        '## Code Review',
+        ...renderCodeReviewSection(analysis.codeReview),
+      ]
+    : [
+        '## Resumo',
+        analysis.summary,
+        '',
+        '## Impacto',
+        analysis.impact,
+        '',
+        '## Riscos',
+        analysis.risks,
+        '',
+        '## Proximos passos',
+        analysis.nextSteps,
+        '',
+      ];
+
   return [
     frontmatter,
     `# ${buildNoteTitle(event, analysis, 'event')}`,
     '',
     renderEventOverview(event, noteFrontmatter),
     renderNavigationSection(paths),
-    '## Resumo',
-    analysis.summary,
-    '',
-    '## Impacto',
-    analysis.impact,
-    '',
-    '## Riscos',
-    analysis.risks,
-    '',
-    '## Proximos passos',
-    analysis.nextSteps,
-    '',
+    ...analysisSections,
     ...manualSections,
     ...pushSections,
     '## Metadados tecnicos',
@@ -1879,6 +2033,7 @@ function renderEventNote(event, analysis, noteFrontmatter, paths) {
     `- source: ${event.source || 'n/a'}`,
     `- importance: ${noteFrontmatter.importance}`,
     `- status: ${noteFrontmatter.status}`,
+    `- has_code_review: ${isPush}`,
     `- reminder_date: ${noteFrontmatter.reminder_date || 'n/a'}`,
     `- reminder_time: ${noteFrontmatter.reminder_time || 'n/a'}`,
     '',
@@ -2136,6 +2291,7 @@ async function persistEvent(project, payload, analysis, allProjects) {
     reminder_time: String(payload.reminder_time || '').trim(),
     reminder_at: String(payload.reminder_at || '').trim(),
     promoted_to: canonicalType || '',
+    has_code_review: payload.event_type === 'github_push',
   };
 
   await fs.writeFile(
