@@ -62,7 +62,7 @@
           },
           "options": {}
         },
-        "name": "Has Anomaly?",
+        "name": "Has Anomaly?", 
         "type": "n8n-nodes-base.if",
         "typeVersion": 2.2,
         "position": [
