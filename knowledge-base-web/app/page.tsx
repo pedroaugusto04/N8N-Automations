@@ -18,39 +18,23 @@ export default async function NotesPage() {
   const manifestPath = String(process.env.KB_PROJECTS_FILE || '').trim();
 
   return (
-    <main className="px-4 py-5 sm:px-6 lg:px-10">
-      <div className="mx-auto max-w-7xl space-y-6">
-        <section className="paper-panel overflow-hidden rounded-[30px]">
-          <div className="grid gap-6 border-b border-stone-200/70 px-5 py-6 sm:px-8 lg:grid-cols-[1.5fr,0.8fr] lg:items-end">
+    <main className="px-4 py-4 sm:px-6 sm:py-6 lg:px-8">
+      <div className="mx-auto max-w-4xl">
+        <section className="paper-panel overflow-hidden rounded-[28px]">
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-stone-200/70 px-5 py-4 sm:px-6">
             <div>
-              <p className="mb-3 text-xs uppercase tracking-[0.36em] text-pine">Cliente web do kb</p>
-              <h1 className="font-serif text-4xl leading-tight text-ink sm:text-5xl">
-                Texto livre primeiro, parametros quando ajudarem.
-              </h1>
-              <p className="mt-4 max-w-3xl text-sm leading-7 text-stone-600 sm:text-base">
-                Esta interface envia notas manuais para o mesmo fluxo remote-first do <code>kb</code>. O
-                formulario foi pensado para celular e desktop, mantendo a rapidez do comando e adicionando
-                selecoes rapidas quando elas economizam tempo.
-              </p>
+              <p className="text-xs uppercase tracking-[0.3em] text-stone-500">KB Web</p>
+              <h1 className="mt-1 text-2xl font-semibold text-ink sm:text-3xl">Nova nota</h1>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-              <div className="rounded-[24px] bg-white/75 px-5 py-4">
-                <p className="text-xs uppercase tracking-[0.28em] text-stone-500">Origem</p>
-                <p className="mt-2 text-sm leading-6 text-stone-700">
-                  Webhook atual do n8n, com segredo no servidor e compatibilidade com o processor existente.
-                </p>
-              </div>
-
-              <form action={logoutAction}>
-                <button
-                  type="submit"
-                  className="w-full rounded-[24px] border border-stone-300 bg-stone-950 px-5 py-4 text-sm font-semibold text-white transition hover:bg-stone-800"
-                >
-                  Encerrar sessao
-                </button>
-              </form>
-            </div>
+            <form action={logoutAction}>
+              <button
+                type="submit"
+                className="rounded-full border border-stone-300 bg-white px-4 py-2 text-sm font-medium text-stone-700 transition hover:border-stone-400 hover:text-stone-900"
+              >
+                Sair
+              </button>
+            </form>
           </div>
 
           <NotesApp
