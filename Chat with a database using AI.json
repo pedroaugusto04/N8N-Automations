@@ -1,0 +1,199 @@
+{
+  "name": "Chat with a database using AI",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "74b0bde1-86fd-47a8-b6e1-24f82a33fb47",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1,
+      "position": [
+        -96,
+        -96
+      ],
+      "webhookId": "c102c542-e9cd-4cfe-992b-dae28442d3b0",
+      "credentials": {
+        "telegramApi": {
+          "id": "tgCredFecon24001",
+          "name": "Telegram FeConect"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.message.text }}",
+        "options": {
+          "systemMessage": "Você é um assistente que consulta banco de dados PostgreSQL. Sempre que possível, gere queries SQL corretas e use a ferramenta disponível. Nunca invente dados."
+        }
+      },
+      "id": "19ca7e58-0b67-46e9-a609-6cb35888a752",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        304,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $json.message.chat.id }}"
+      },
+      "id": "da588c20-16c4-4a6d-ae89-5d20f7b730a7",
+      "name": "Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        304,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "openrouter/free",
+          "mode": ""
+        },
+        "options": {
+          "temperature": 0
+        }
+      },
+      "id": "5a04607d-1f8c-4deb-9f68-bea1af14d05d",
+      "name": "OpenRouter Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        112,
+        112
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "BiVV4g4BJ1YxqhL2",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "{{ $fromAI('sql_statement') }}",
+        "options": {}
+      },
+      "id": "398e83cf-0efc-4452-b129-1d97ba4eb36f",
+      "name": "Postgres Tool",
+      "type": "n8n-nodes-base.postgresTool",
+      "typeVersion": 2.5,
+      "position": [
+        512,
+        112
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "FvFc8yCxaa3CkPIS",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "text": "={{ $json.output.replace(/[*_`\\[\\]()~>#+\\-=|{}.!]/g, \"\") }}",
+        "additionalFields": {}
+      },
+      "id": "42b68ed0-b668-4bec-9782-dee8531ae489",
+      "name": "Send Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [
+        704,
+        -96
+      ],
+      "webhookId": "dcfcbee1-50d4-4de6-be13-25f848f64325",
+      "credentials": {
+        "telegramApi": {
+          "id": "tgCredFecon24001",
+          "name": "Telegram FeConect"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "1cf15d88-775c-444f-98c5-87dc3250ed86",
+  "meta": {
+    "templateId": "2090",
+    "templateCredsSetupCompleted": true,
+    "instanceId": "640e2b64548de126c4bfd6524a25adc96a52abe563e283d5677cde8c544e242f"
+  },
+  "id": "S4kpRhwJWjREFlCp",
+  "tags": []
+}
