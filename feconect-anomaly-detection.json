@@ -1,5 +1,6 @@
 [
   {
+    "id": "feconectAnomaly240001",
     "name": "FeConect - Anomaly Detection Telegram",
     "description": null,
     "active": false,

@@ -33,6 +33,51 @@ if [ "${#WORKFLOW_FILES[@]}" -eq 0 ]; then
   exit 1
 fi
 
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "python3 is required on the VPS to validate workflow JSON files" >&2
+  exit 1
+fi
+
+python3 - "${WORKFLOW_FILES[@]}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+failed = False
+for file_name in sys.argv[1:]:
+    path = Path(file_name)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        print(f"{file_name}: invalid JSON: {exc}", file=sys.stderr)
+        failed = True
+        continue
+
+    workflows = data if isinstance(data, list) else [data]
+    if not workflows:
+        print(f"{file_name}: does not contain any workflows", file=sys.stderr)
+        failed = True
+        continue
+
+    for index, workflow in enumerate(workflows):
+        if not isinstance(workflow, dict):
+            print(f"{file_name}[{index}]: workflow must be an object", file=sys.stderr)
+            failed = True
+            continue
+
+        workflow_id = workflow.get("id")
+        workflow_name = workflow.get("name")
+        if not isinstance(workflow_id, str) or not workflow_id.strip():
+            print(f"{file_name}[{index}]: workflow id is required", file=sys.stderr)
+            failed = True
+        if not isinstance(workflow_name, str) or not workflow_name.strip():
+            print(f"{file_name}[{index}]: workflow name is required", file=sys.stderr)
+            failed = True
+
+if failed:
+    sys.exit(1)
+PY
+
 echo "Found ${#WORKFLOW_FILES[@]} workflow file(s)"
 
 container_id="$(docker compose -f "$COMPOSE_FILE" ps -q "$N8N_SERVICE")"
@@ -73,6 +118,27 @@ for workflow_file in "${WORKFLOW_FILES[@]}"; do
   target_file="$REMOTE_IMPORT_DIR/${clean_name//\//__}"
   echo "Importing $clean_name"
   docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" n8n import:workflow --input="$target_file" "${project_arg[@]}"
+done
+
+echo "Applying workflow active states from versioned JSON files"
+for workflow_file in "${WORKFLOW_FILES[@]}"; do
+  while IFS=$'\t' read -r workflow_id workflow_active; do
+    echo "Setting workflow $workflow_id active=$workflow_active"
+    docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" n8n update:workflow --id="$workflow_id" --active="$workflow_active"
+  done < <(
+    python3 - "$workflow_file" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+workflows = data if isinstance(data, list) else [data]
+for workflow in workflows:
+    workflow_id = workflow["id"]
+    workflow_active = "true" if workflow.get("active") is True else "false"
+    print(f"{workflow_id}\t{workflow_active}")
+PY
+  )
 done
 
 echo "Restarting $N8N_SERVICE so active workflows and webhooks are reloaded"

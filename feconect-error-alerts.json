@@ -1,5 +1,6 @@
 [
   {
+    "id": "feconectErrorAlerts240001",
     "name": "FeConect - Error Alerts Telegram",
     "description": null,
     "active": false,

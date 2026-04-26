@@ -1,5 +1,6 @@
 [
   {
+    "id": "feconectVpsSummary240001",
     "name": "FeConect - VPS Daily Summary Telegram",
     "description": "Resumo diario da VPS com status e metricas essenciais enviado ao Telegram.",
     "active": false,
