@@ -29,3 +29,22 @@ services:
       - ./knowledge-base:/home/node/knowledge-base:ro
       - ../knowledge-vault:/home/node/knowledge-vault
 
+  evolution-api:
+    image: evoapicloud/evolution-api:latest
+    restart: always
+    ports:
+      - "${EVOLUTION_API_PORT:-8081}:8080"
+    environment:
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
+      SERVER_URL: ${EVOLUTION_API_PUBLIC_URL:-http://localhost:8081}
+      DATABASE_PROVIDER: postgresql
+      DATABASE_ENABLED: "false"
+      CACHE_REDIS_ENABLED: "false"
+      LOG_LEVEL: WARN
+      DEL_INSTANCE: "false"
+      WEBHOOK_GLOBAL_ENABLED: "true"
+      WEBHOOK_GLOBAL_URL: ""
+      TZ: ${GENERIC_TIMEZONE:-America/Sao_Paulo}
+    volumes:
+      - ./evolution-data:/evolution/instances
+

@@ -166,49 +166,79 @@
       },
       {
         "parameters": {
-          "chatId": "={{ $env.VPS_TELEGRAM_CHAT_ID }}",
-          "text": "={{ $json.text }}",
-          "additionalFields": {
-            "appendAttribution": false
-          }
+          "method": "POST",
+          "url": "={{ $env.EVOLUTION_API_URL }}/message/sendText/{{ $env.EVOLUTION_INSTANCE_NAME }}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "apikey",
+                "value": "={{ $env.EVOLUTION_API_KEY }}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "bodyParameters": {
+            "parameters": [
+              {
+                "name": "number",
+                "value": "={{ $env.WPP_KB_GROUP_JID }}"
+              },
+              {
+                "name": "text",
+                "value": "={{ $json.text }}"
+              }
+            ]
+          },
+          "options": {}
         },
         "id": "8ca7a70f-28a3-4b29-bd48-f63401b5a5f1",
         "name": "Send Daily Reminders",
-        "type": "n8n-nodes-base.telegram",
-        "typeVersion": 1.2,
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
         "position": [
           960,
           80
         ],
-        "credentials": {
-          "telegramApi": {
-            "id": "tgCredVps2400001",
-            "name": "Telegram VPS"
-          }
-        }
+        "onError": "continueRegularOutput"
       },
       {
         "parameters": {
-          "chatId": "={{ $env.VPS_TELEGRAM_CHAT_ID }}",
-          "text": "={{ $json.text }}",
-          "additionalFields": {
-            "appendAttribution": false
-          }
+          "method": "POST",
+          "url": "={{ $env.EVOLUTION_API_URL }}/message/sendText/{{ $env.EVOLUTION_INSTANCE_NAME }}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "apikey",
+                "value": "={{ $env.EVOLUTION_API_KEY }}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "bodyParameters": {
+            "parameters": [
+              {
+                "name": "number",
+                "value": "={{ $env.WPP_KB_GROUP_JID }}"
+              },
+              {
+                "name": "text",
+                "value": "={{ $json.text }}"
+              }
+            ]
+          },
+          "options": {}
         },
         "id": "a1102ff0-6671-43d7-b4d3-9d7a9f641aa5",
         "name": "Send Exact Reminder",
-        "type": "n8n-nodes-base.telegram",
-        "typeVersion": 1.2,
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
         "position": [
           960,
           320
         ],
-        "credentials": {
-          "telegramApi": {
-            "id": "tgCredVps2400001",
-            "name": "Telegram VPS"
-          }
-        }
+        "onError": "continueRegularOutput"
       },
       {
         "parameters": {

@@ -23,3 +23,5 @@ backups/
 *.dump
 *.sql.gz
 *.archive.gz
+
+evolution-data/
