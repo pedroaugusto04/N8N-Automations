@@ -292,17 +292,17 @@ async function aiExtractFields(messageText, projects) {
 
 function isCancel(text) {
   const lower = text.toLowerCase().trim();
-  return ['cancelar', 'cancel', 'cancela', 'sair', 'desistir'].includes(lower);
+  return ['cancelar', 'cancel', 'cancela', 'sair', 'desistir', '0'].includes(lower);
 }
 
 function isConfirm(text) {
   const lower = text.toLowerCase().trim();
-  return ['confirmar', 'confirma', 'ok', 'sim', 's', 'yes', 'y', 'enviar', 'salvar'].includes(lower);
+  return ['confirmar', 'confirma', 'ok', 'sim', 's', 'yes', 'y', 'enviar', 'salvar', '1'].includes(lower);
 }
 
 function isSkip(text) {
   const lower = text.toLowerCase().trim();
-  return ['pular', 'skip', 'nao', 'não', 'n', 'no', 'nenhum', 'sem', ''].includes(lower);
+  return ['pular', 'skip', 'nao', 'não', 'n', 'no', 'nenhum', 'sem', '', '9'].includes(lower);
 }
 
 function parseKindChoice(text) {
@@ -351,7 +351,8 @@ function buildKindPrompt() {
   KINDS.forEach((kind, index) => {
     lines.push(`${index + 1}. ${KIND_LABELS[kind]}`);
   });
-  lines.push('', 'Responda com o numero ou o nome. Digite "pular" para usar o sugerido.');
+  lines.push('', '9. Pular (usar sugerido)');
+  lines.push('0. Cancelar');
   return lines.join('\n');
 }
 
@@ -362,7 +363,8 @@ function buildProjectPrompt(projects, suggestedSlug) {
     lines.push(`${index + 1}. ${p.display} (${p.slug})${suffix}`);
   });
   lines.push(`${projects.length + 1}. inbox - caixa de entrada geral`);
-  lines.push('', 'Responda com o numero ou o nome. "pular" usa o sugerido.');
+  lines.push('', '9. Pular (usar sugerido)');
+  lines.push('0. Cancelar');
   return lines.join('\n');
 }
 
@@ -371,7 +373,9 @@ function buildReminderDatePrompt() {
     'Deseja agendar um lembrete?',
     '',
     'Envie a data (DD/MM/AAAA, "hoje", "amanhã")',
-    'ou "pular" para seguir sem lembrete.',
+    '',
+    '9. Pular (sem lembrete)',
+    '0. Cancelar',
   ].join('\n');
 }
 
@@ -379,7 +383,8 @@ function buildReminderTimePrompt() {
   return [
     'Qual horário exato para o lembrete? (HH:mm)',
     '',
-    '"pular" para receber no resumo diário das 09:00.',
+    '9. Pular (resumo diário 09:00)',
+    '0. Cancelar',
   ].join('\n');
 }
 
@@ -404,7 +409,9 @@ function buildConfirmationPrompt(state) {
     state.tags?.length ? `*Tags:* ${state.tags.join(', ')}` : '',
     attachmentPart,
     '',
-    'Confirma? (sim/não/cancelar)',
+    '1. Confirmar ✅',
+    '9. Descartar 🗑️',
+    '0. Cancelar ❌',
   ]
     .filter(Boolean)
     .join('\n');
