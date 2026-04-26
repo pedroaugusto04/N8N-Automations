@@ -36,7 +36,13 @@
         "position": [
           288,
           0
-        ]
+        ],
+        "credentials": {
+          "sshPrivateKey": {
+            "id": "2urEEfcr9NaOCNJN",
+            "name": "SSH Password account"
+          }
+        }
       },
       {
         "parameters": {
