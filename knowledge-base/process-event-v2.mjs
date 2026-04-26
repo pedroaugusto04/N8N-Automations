@@ -38,10 +38,7 @@ const vaultFolders = {
   projects: '10 Projects',
   inbox: '20 Inbox',
   knowledge: '30 Knowledge',
-  decisions: '40 Decisions',
-  incidents: '50 Incidents',
-  followups: '60 Followups',
-  reminders: '70 Reminders',
+  actions: '40 Actions',
   assets: '90 Assets',
 };
 const saoPauloFormatter = new Intl.DateTimeFormat('en-CA', {
@@ -654,10 +651,10 @@ function folderForCanonicalType(type) {
     return vaultFolders.knowledge;
   }
   if (type === 'decision') {
-    return vaultFolders.decisions;
+    return vaultFolders.knowledge;
   }
   if (type === 'incident') {
-    return vaultFolders.incidents;
+    return vaultFolders.actions;
   }
   return vaultFolders.inbox;
 }
@@ -797,7 +794,7 @@ function renderHomePage() {
     renderDataviewSection({
       title: 'Pendencias com prazo mais proximo',
       description: 'Mostra o que pode virar gargalo primeiro.',
-      sourceFolder: vaultFolders.followups,
+      sourceFolder: vaultFolders.actions,
       whereClause: 'type = "followup" AND status != "resolved" AND status != "archived"',
       sortField: 'follow_up_by',
       sortDirection: 'ASC',
@@ -807,7 +804,7 @@ function renderHomePage() {
     renderDataviewSection({
       title: 'Incidentes ativos',
       description: 'Use esta visao para localizar problemas ainda sem encerramento.',
-      sourceFolder: vaultFolders.incidents,
+      sourceFolder: vaultFolders.actions,
       whereClause: 'type = "incident" AND status != "resolved" AND status != "archived"',
       sortField: 'occurred_at',
       sortDirection: 'DESC',
@@ -834,7 +831,7 @@ function renderHomePage() {
     renderDataviewSection({
       title: 'Lembretes ativos',
       description: 'Itens com data definida para resumo diario ou disparo exato no Telegram.',
-      sourceFolder: vaultFolders.reminders,
+      sourceFolder: vaultFolders.actions,
       whereClause: 'type = "reminder" AND status != "resolved" AND status != "archived"',
       sortField: 'reminder_at',
       sortDirection: 'ASC',
@@ -844,7 +841,7 @@ function renderHomePage() {
     renderDataviewSection({
       title: 'Decisoes recentes',
       description: 'Resumo rapido do que mudou de direcao ou padrao.',
-      sourceFolder: vaultFolders.decisions,
+      sourceFolder: vaultFolders.knowledge,
       whereClause: 'type = "decision"',
       sortField: 'occurred_at',
       sortDirection: 'DESC',
@@ -890,7 +887,7 @@ function renderProjectsPage() {
     renderDataviewSection({
       title: 'Incidentes abertos por projeto',
       description: 'Lista de incidentes ainda ativos para triagem rapida.',
-      sourceFolder: vaultFolders.incidents,
+      sourceFolder: vaultFolders.actions,
       whereClause: 'type = "incident" AND status != "resolved" AND status != "archived"',
       sortField: 'occurred_at',
       sortDirection: 'DESC',
@@ -900,7 +897,7 @@ function renderProjectsPage() {
     renderDataviewSection({
       title: 'Pendencias abertas por projeto',
       description: 'Use esta visao para identificar follow-ups sem conclusao.',
-      sourceFolder: vaultFolders.followups,
+      sourceFolder: vaultFolders.actions,
       whereClause: 'type = "followup" AND status != "resolved" AND status != "archived"',
       sortField: 'follow_up_by',
       sortDirection: 'ASC',
@@ -910,7 +907,7 @@ function renderProjectsPage() {
     renderDataviewSection({
       title: 'Lembretes ativos por projeto',
       description: 'Lembretes com data definida para envio diario ou exato.',
-      sourceFolder: vaultFolders.reminders,
+      sourceFolder: vaultFolders.actions,
       whereClause: 'type = "reminder" AND status != "resolved" AND status != "archived"',
       sortField: 'reminder_at',
       sortDirection: 'ASC',
@@ -983,7 +980,7 @@ function renderDecisionsPage() {
     renderDataviewSection({
       title: 'Decisoes recentes',
       description: 'O que mudou de direcao recentemente.',
-      sourceFolder: vaultFolders.decisions,
+      sourceFolder: vaultFolders.knowledge,
       whereClause: 'type = "decision"',
       sortField: 'occurred_at',
       sortDirection: 'DESC',
@@ -993,7 +990,7 @@ function renderDecisionsPage() {
     renderDataviewSection({
       title: 'Decisoes de alta importancia',
       description: 'Mudancas com potencial maior de impacto operacional ou arquitetural.',
-      sourceFolder: vaultFolders.decisions,
+      sourceFolder: vaultFolders.knowledge,
       whereClause: 'type = "decision" AND importance = "high"',
       sortField: 'occurred_at',
       sortDirection: 'DESC',
@@ -1024,7 +1021,7 @@ function renderIncidentsPage() {
     renderDataviewSection({
       title: 'Incidentes abertos',
       description: 'Lista principal para triagem e acompanhamento.',
-      sourceFolder: vaultFolders.incidents,
+      sourceFolder: vaultFolders.actions,
       whereClause: 'type = "incident" AND status != "resolved" AND status != "archived"',
       sortField: 'occurred_at',
       sortDirection: 'DESC',
@@ -1034,7 +1031,7 @@ function renderIncidentsPage() {
     renderDataviewSection({
       title: 'Historico resolvido',
       description: 'Consulte esta visao para entender o que ja foi encerrado e reaproveitar aprendizados.',
-      sourceFolder: vaultFolders.incidents,
+      sourceFolder: vaultFolders.actions,
       whereClause: 'type = "incident" AND (status = "resolved" OR status = "archived")',
       sortField: 'occurred_at',
       sortDirection: 'DESC',
@@ -1065,7 +1062,7 @@ function renderFollowupsPage() {
     renderDataviewSection({
       title: 'Pendencias vencendo primeiro',
       description: 'Priorize por prazo para reduzir risco de esquecimento.',
-      sourceFolder: vaultFolders.followups,
+      sourceFolder: vaultFolders.actions,
       whereClause: 'type = "followup" AND status != "resolved" AND status != "archived"',
       sortField: 'follow_up_by',
       sortDirection: 'ASC',
@@ -1075,7 +1072,7 @@ function renderFollowupsPage() {
     renderDataviewSection({
       title: 'Pendencias recentes',
       description: 'Use esta visao para revisar follow-ups adicionados recentemente.',
-      sourceFolder: vaultFolders.followups,
+      sourceFolder: vaultFolders.actions,
       whereClause: 'type = "followup"',
       sortField: 'occurred_at',
       sortDirection: 'DESC',
@@ -1106,7 +1103,7 @@ function renderRemindersPage() {
     renderDataviewSection({
       title: 'Lembretes com horario exato',
       description: 'Itens com data e horario definidos para envio pontual.',
-      sourceFolder: vaultFolders.reminders,
+      sourceFolder: vaultFolders.actions,
       whereClause: 'type = "reminder" AND reminder_at AND status != "resolved" AND status != "archived"',
       sortField: 'reminder_at',
       sortDirection: 'ASC',
@@ -1116,7 +1113,7 @@ function renderRemindersPage() {
     renderDataviewSection({
       title: 'Todos os lembretes ativos',
       description: 'Base usada pelo resumo diario das 09:00.',
-      sourceFolder: vaultFolders.reminders,
+      sourceFolder: vaultFolders.actions,
       whereClause: 'type = "reminder" AND status != "resolved" AND status != "archived"',
       sortField: 'reminder_date',
       sortDirection: 'ASC',
@@ -1189,7 +1186,7 @@ function renderProjectSummary(project) {
     renderDataviewSection({
       title: 'Decisoes recentes',
       description: 'Mudancas relevantes de direcionamento ou padrao.',
-      sourceFolder: vaultFolders.decisions,
+      sourceFolder: vaultFolders.knowledge,
       whereClause: 'project = this.project',
       sortField: 'occurred_at',
       sortDirection: 'DESC',
@@ -1199,7 +1196,7 @@ function renderProjectSummary(project) {
     renderDataviewSection({
       title: 'Incidentes abertos',
       description: 'Problemas ainda sem conclusao para este projeto.',
-      sourceFolder: vaultFolders.incidents,
+      sourceFolder: vaultFolders.actions,
       whereClause: 'project = this.project AND status != "resolved" AND status != "archived"',
       sortField: 'occurred_at',
       sortDirection: 'DESC',
@@ -1209,7 +1206,7 @@ function renderProjectSummary(project) {
     renderDataviewSection({
       title: 'Pendencias abertas',
       description: 'Acoes pendentes que ainda precisam de acompanhamento.',
-      sourceFolder: vaultFolders.followups,
+      sourceFolder: vaultFolders.actions,
       whereClause: 'project = this.project AND status != "resolved" AND status != "archived"',
       sortField: 'follow_up_by',
       sortDirection: 'ASC',
@@ -1219,7 +1216,7 @@ function renderProjectSummary(project) {
     renderDataviewSection({
       title: 'Lembretes ativos',
       description: 'Itens do projeto que vao aparecer no Telegram por resumo diario ou disparo exato.',
-      sourceFolder: vaultFolders.reminders,
+      sourceFolder: vaultFolders.actions,
       whereClause: 'project = this.project AND status != "resolved" AND status != "archived"',
       sortField: 'reminder_at',
       sortDirection: 'ASC',
@@ -1242,10 +1239,10 @@ async function ensureVaultScaffolding(projects) {
   await writeGeneratedPage(`${vaultFolders.home}/Home.md`, renderHomePage());
   await writeGeneratedPage(`${vaultFolders.projects}/Projects.md`, renderProjectsPage());
   await writeGeneratedPage(`${vaultFolders.knowledge}/Knowledge.md`, renderKnowledgePage());
-  await writeGeneratedPage(`${vaultFolders.decisions}/Decisions.md`, renderDecisionsPage());
-  await writeGeneratedPage(`${vaultFolders.incidents}/Incidents.md`, renderIncidentsPage());
-  await writeGeneratedPage(`${vaultFolders.followups}/Followups.md`, renderFollowupsPage());
-  await writeGeneratedPage(`${vaultFolders.reminders}/Reminders.md`, renderRemindersPage());
+  await writeGeneratedPage(`${vaultFolders.knowledge}/Decisions.md`, renderDecisionsPage());
+  await writeGeneratedPage(`${vaultFolders.actions}/Incidents.md`, renderIncidentsPage());
+  await writeGeneratedPage(`${vaultFolders.actions}/Followups.md`, renderFollowupsPage());
+  await writeGeneratedPage(`${vaultFolders.actions}/Reminders.md`, renderRemindersPage());
 
   for (const project of projects) {
     await writeGeneratedPage(toRelativeVaultPath(projectSummaryPath(project)), renderProjectSummary(project));
@@ -2223,7 +2220,7 @@ async function persistEvent(project, payload, analysis, allProjects) {
   const canonicalRelativePath = canonicalPath ? toRelativeVaultPath(canonicalPath) : '';
 
   const shouldTrackFollowup = shouldCreateFollowup(payload, canonicalType);
-  const followupDir = shouldTrackFollowup ? path.join(vaultPath, vaultFolders.followups, project.project_slug, year, month) : '';
+  const followupDir = shouldTrackFollowup ? path.join(vaultPath, vaultFolders.actions, project.project_slug, year, month) : '';
   if (followupDir) {
     await ensureDir(followupDir);
   }
@@ -2233,7 +2230,7 @@ async function persistEvent(project, payload, analysis, allProjects) {
   const followupRelativePath = followupPath ? toRelativeVaultPath(followupPath) : '';
 
   const shouldTrackReminder = shouldCreateReminder(payload);
-  const reminderDir = shouldTrackReminder ? path.join(vaultPath, vaultFolders.reminders, project.project_slug, year, month) : '';
+  const reminderDir = shouldTrackReminder ? path.join(vaultPath, vaultFolders.actions, project.project_slug, year, month) : '';
   if (reminderDir) {
     await ensureDir(reminderDir);
   }

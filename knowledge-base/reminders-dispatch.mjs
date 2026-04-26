@@ -6,7 +6,7 @@ import path from 'node:path';
 const vaultPath = process.env.KB_VAULT_PATH || '/home/node/knowledge-vault';
 const archivePath = process.env.KB_ARCHIVE_PATH || '/home/node/knowledge-vault-archive';
 const statePath = process.env.KB_REMINDER_STATE_PATH || path.join(archivePath, 'reminders-state.json');
-const remindersRoot = path.join(vaultPath, '70 Reminders');
+const remindersRoot = path.join(vaultPath, '40 Actions');
 
 const mode = String(process.argv[2] || '').trim().toLowerCase();
 const modeArg = String(process.argv[3] || '').trim();
