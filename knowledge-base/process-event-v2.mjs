@@ -1077,7 +1077,7 @@ function renderFollowupsPage() {
       sortField: 'occurred_at',
       sortDirection: 'DESC',
       limit: 20,
-      columns: ['occurred_at AS Criado em', 'project AS Projeto', 'importance AS Prioridade', 'status AS Estado'],
+      columns: ['occurred_at AS "Criado em"', 'project AS Projeto', 'importance AS Prioridade', 'status AS Estado'],
     }),
   ].join('\n');
 }
