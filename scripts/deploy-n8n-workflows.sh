@@ -141,6 +141,44 @@ PY
   )
 done
 
+echo "Deactivating duplicate workflows with the same names as managed workflows"
+current_workflows_file="$(mktemp)"
+docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" n8n export:workflow --all > "$current_workflows_file"
+while IFS=$'\t' read -r duplicate_id duplicate_name; do
+  echo "Deactivating duplicate workflow $duplicate_id ($duplicate_name)"
+  docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" n8n update:workflow --id="$duplicate_id" --active=false
+done < <(
+  python3 - "$current_workflows_file" "${WORKFLOW_FILES[@]}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+current_path = Path(sys.argv[1])
+managed_files = [Path(name) for name in sys.argv[2:]]
+
+managed_by_name = {}
+for path in managed_files:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    workflows = data if isinstance(data, list) else [data]
+    for workflow in workflows:
+        managed_by_name[workflow["name"]] = workflow["id"]
+
+current_data = json.loads(current_path.read_text(encoding="utf-8") or "[]")
+current_workflows = current_data if isinstance(current_data, list) else [current_data]
+
+for workflow in current_workflows:
+    workflow_id = str(workflow.get("id") or "").strip()
+    workflow_name = str(workflow.get("name") or "").strip()
+    if not workflow_id or not workflow_name:
+        continue
+
+    managed_id = managed_by_name.get(workflow_name)
+    if managed_id and workflow_id != managed_id:
+        print(f"{workflow_id}\t{workflow_name}")
+PY
+)
+rm -f "$current_workflows_file"
+
 echo "Restarting $N8N_SERVICE so active workflows and webhooks are reloaded"
 docker compose -f "$COMPOSE_FILE" restart "$N8N_SERVICE"
 
