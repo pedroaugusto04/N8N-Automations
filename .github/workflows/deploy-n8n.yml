@@ -44,4 +44,34 @@ jobs:
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
             "$VPS_USER@$VPS_HOST" \
-            "cd '$VPS_REPO_PATH' && git pull --ff-only origin main && bash scripts/deploy-n8n-workflows.sh"
+            "VPS_REPO_PATH=$(printf '%q' "$VPS_REPO_PATH") bash -s" <<'EOF'
+          set -euo pipefail
+
+          case "$VPS_REPO_PATH" in
+            "~")
+              repo_path="$HOME"
+              ;;
+            "~/"*)
+              repo_path="$HOME/${VPS_REPO_PATH#~/}"
+              ;;
+            *)
+              repo_path="$VPS_REPO_PATH"
+              ;;
+          esac
+
+          if [ ! -d "$repo_path/.git" ]; then
+            echo "Repository not found on VPS. Check the VPS_REPO_PATH secret." >&2
+            echo "Expected a Git repository at: $repo_path" >&2
+            exit 1
+          fi
+
+          cd "$repo_path"
+          if [ ! -w .git/objects ]; then
+            echo "The deploy user cannot write to .git/objects on the VPS." >&2
+            echo "Fix the repository ownership/permissions for the VPS_USER before running deploy again." >&2
+            exit 1
+          fi
+
+          git pull --ff-only origin main
+          bash scripts/deploy-n8n-workflows.sh
+          EOF
