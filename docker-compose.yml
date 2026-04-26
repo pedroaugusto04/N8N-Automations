@@ -35,9 +35,9 @@ services:
     image: postgres:16-alpine
     restart: always
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: Pedro@D18
-      POSTGRES_DB: evolution_api
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d evolution_api"]
       interval: 5s
