@@ -31,11 +31,31 @@ services:
       - ./knowledge-base:/home/node/knowledge-base:ro
       - ../knowledge-vault:/home/node/knowledge-vault
 
+  evolution-postgres:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: Pedro@D18
+      POSTGRES_DB: evolution_api
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d evolution_api"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - wander-net
+    volumes:
+      - ./evolution-postgres-data:/var/lib/postgresql/data
+
   evolution-api:
     image: evoapicloud/evolution-api:latest
     restart: always
     ports:
       - "${EVOLUTION_API_PORT:-8081}:8080"
+    depends_on:
+      evolution-postgres:
+        condition: service_healthy
     networks:
       - wander-net
     environment:
@@ -58,4 +78,3 @@ networks:
   wander-net:
     external: true
     name: wander-rag_default
-

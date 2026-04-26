@@ -26,3 +26,17 @@ backups/
 *.archive.gz
 
 evolution-data/
+
+
+# Postgres data
+evolution-postgres-data/
+
+# Docker volumes (boa prática)
+*/data/
+*.db
+
+# node_modules (se tiver)
+node_modules/
+
+# env
+.env
