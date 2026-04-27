@@ -46,6 +46,7 @@ input[type="search"] { cursor: text; }
 .main-nav { display: grid; gap: 4px; margin-bottom: 22px; }
 .nav-item, .tree-item, .workspace-pill, .filter-chip, .icon-button { border: 1px solid transparent; color: var(--muted); background: transparent; }
 .nav-item, .tree-item, .workspace-pill { width: 100%; min-height: 36px; border-radius: 7px; text-align: left; }
+.nav-item { display: flex; align-items: center; text-decoration: none; }
 .nav-item { padding: 8px 10px; }
 .nav-item:hover, .tree-item:hover, .workspace-pill:hover, .filter-chip:hover, .icon-button:hover { color: var(--text); background: rgba(148, 163, 184, 0.08); border-color: var(--line-soft); }
 .nav-item.active, .tree-item.active, .filter-chip.active { color: #e9fbff; background: rgba(83, 199, 222, 0.13); border-color: rgba(83, 199, 222, 0.34); }

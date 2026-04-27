@@ -9,3 +9,15 @@ Scripts principais:
 - `npm run test:frontend`: testes de componentes
 
 O frontend consome a API NestJS do proprio pacote `knowledge-base` e preserva o design visual da primeira versao estatica.
+
+## Estrutura
+
+- `src/app`: bootstrap, providers, contexto de pagina e rotas
+- `src/layouts`: shell principal, sidebar, topbar e inspector
+- `src/pages`: telas por rota
+- `src/widgets`: blocos reutilizaveis de dominio
+- `src/shared`: client HTTP, tipos, estilos globais e componentes primitivos
+
+## Testes
+
+Os testes usam Vitest + Testing Library. O helper `src/app/test-utils.tsx` cria `QueryClientProvider` e `MemoryRouter`, permitindo testar telas e navegacao com `fetch` mockado sem subir o backend.
