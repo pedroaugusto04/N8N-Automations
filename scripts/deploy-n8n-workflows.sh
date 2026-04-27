@@ -72,41 +72,7 @@ for i in $(seq 1 60); do
   sleep 2
 done
 
-# 7. Verificação via REST API do host (curl do host, não do container)
-echo ""
-echo "📋 Verifying webhook registration..."
-sleep 5
-
-# Read auth from .env
-AUTH_USER="${N8N_BASIC_AUTH_USER:-}"
-AUTH_PASS="${N8N_BASIC_AUTH_PASSWORD:-}"
-if [ -z "$AUTH_USER" ] && [ -f .env ]; then
-  AUTH_USER=$(grep '^N8N_BASIC_AUTH_USER=' .env | cut -d'=' -f2- | tr -d "\"'" || true)
-  AUTH_PASS=$(grep '^N8N_BASIC_AUTH_PASSWORD=' .env | cut -d'=' -f2- | tr -d "\"'" || true)
-fi
-
-# Toggle via REST API do HOST (não do container) — garante registro do webhook
-if [ -n "$AUTH_USER" ]; then
-  for id in $ALL_IDS; do
-    echo "  🔄 REST API toggle: $id"
-    # Desativar
-    curl -s -o /dev/null -u "$AUTH_USER:$AUTH_PASS" \
-      -X PATCH -H "Content-Type: application/json" \
-      -d '{"active":false}' \
-      "http://localhost:5678/rest/workflows/$id" 2>/dev/null || true
-    sleep 1
-    # Ativar (registra webhook na runtime)
-    http_code=$(curl -s -o /dev/null -w "%{http_code}" -u "$AUTH_USER:$AUTH_PASS" \
-      -X PATCH -H "Content-Type: application/json" \
-      -d '{"active":true}' \
-      "http://localhost:5678/rest/workflows/$id" 2>/dev/null || echo "000")
-    echo "    → HTTP $http_code"
-  done
-else
-  echo "  ⚠️ No auth credentials found — skipping REST API toggle"
-fi
-
-# 8. Status Final
+# 7. Status Final
 echo ""
 echo "📋 Final workflow status:"
 docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" \
