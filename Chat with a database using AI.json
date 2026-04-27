@@ -11,7 +11,7 @@
       {
         "parameters": {
           "updates": [
-            "channel_post"
+            "message"
           ],
           "additionalFields": {}
         },
@@ -34,7 +34,7 @@
       {
         "parameters": {
           "promptType": "define",
-          "text": "={{ $json.channel_post.text }}",
+          "text": "={{ $json.message.text }}",
           "options": {
             "systemMessage": "Você é um assistente que consulta banco de dados PostgreSQL. Sempre que possível, gere queries SQL corretas e use a ferramenta disponível. Nunca invente dados."
           }
@@ -51,7 +51,7 @@
       {
         "parameters": {
           "sessionIdType": "customKey",
-          "sessionKey": "={{ $json.channel_post.chat.id }}"
+          "sessionKey": "={{ $json.message.chat.id }}"
         },
         "id": "da588c20-16c4-4a6d-ae89-5d20f7b730a7",
         "name": "Memory",
@@ -111,7 +111,7 @@
       },
       {
         "parameters": {
-          "chatId": "={{ $('Telegram Trigger').item.json.channel_post.chat.id }}",
+          "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
           "text": "={{ $json.output.replace(/[*_`\\[\\]()~>#+\\-=|{}.!]/g, \"\") }}",
           "additionalFields": {}
         },
