@@ -107,65 +107,76 @@ for workflow_file in "${WORKFLOW_FILES[@]}"; do
 done
 
 # =========================
-# 🔄 Limpeza Prévia e Desativação (Evita conflitos de Webhook)
+# 🔄 Limpeza Prévia e Desativação (Evita caminhos duplicados)
 # =========================
-echo "Scanning existing workflows for conflicts..."
+echo "Scanning for path and name conflicts..."
+# Exportar todos os workflows (com nós) para checar caminhos de Webhook
 existing_workflows=$(
   docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" \
     n8n export:workflow --all 2>/dev/null || echo "[]"
 )
 
 for workflow_file in "${WORKFLOW_FILES[@]}"; do
-  # Extrair nome e ID do arquivo local
+  # 1. Extrair Nome e ID local
   local_name=$(jq -r 'if type=="array" then .[0].name else .name end' "$workflow_file")
   local_id=$(jq -r 'if type=="array" then .[0].id else .id end' "$workflow_file")
+  
+  # 2. Extrair PATHs de Webhooks locais
+  local_paths=$(jq -r 'if type=="array" then .[0].nodes[] | select(.type == "n8n-nodes-base.webhook") | .parameters.path else .nodes[] | select(.type == "n8n-nodes-base.webhook") | .parameters.path end' "$workflow_file" 2>/dev/null || echo "")
 
-  # Procurar por conflito de nome no n8n (mesmo nome, ID diferente)
-  conflicting_id=$(echo "$existing_workflows" | jq -r --arg name "$local_name" --arg id "$local_id" '.[] | select(.name == $name and .id != $id) | .id')
+  echo "  Checking '$local_name' (ID: $local_id, Paths: [${local_paths//$'\n'/,}])"
 
-  if [ -n "$conflicting_id" ]; then
-    echo "⚠️  Conflict detected: Workflow '$local_name' exists with different ID ($conflicting_id). Deleting old one..."
-    for cid in $conflicting_id; do
+  # 3. Procurar conflitos por NOME no n8n
+  conflicting_ids=$(echo "$existing_workflows" | jq -r --arg name "$local_name" --arg id "$local_id" '.[] | select(.name == $name and .id != $id) | .id')
+
+  # 4. Procurar conflitos por PATH de Webhook no n8n (o culpado pelo erro de registro)
+  for wp in $local_paths; do
+    path_conflicts=$(echo "$existing_workflows" | jq -r --arg path "$wp" --arg id "$local_id" '.[] | select(.id != $id) | select(.nodes[] | select(.type == "n8n-nodes-base.webhook" and .parameters.path == $path)) | .id')
+    conflicting_ids="$conflicting_ids $path_conflicts"
+  done
+
+  # Remover IDs duplicados da lista de conflitos
+  unique_conflicts=$(echo "$conflicting_ids" | tr ' ' '\n' | sort -u | tr '\n' ' ')
+
+  if [ -n "$(echo "$unique_conflicts" | tr -d ' ')" ]; then
+    for cid in $unique_conflicts; do
+      echo "    ⚠️  Conflict: Deleting workflow ID $cid to free up Webhook Path..."
       docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" \
-        n8n delete:workflow --id="$cid" || true
+        n8n delete:workflow --id="$cid" >/dev/null 2>&1 || true
     done
   fi
 done
 
-# Desativar todos os IDs atuais no n8n para liberar portas/memória
-echo "Deactivating all current workflows to clear registry..."
-current_ids=$(echo "$existing_workflows" | jq -r '.[].id' 2>/dev/null || echo "")
+# Passo Extra: Desativar todos que sobraram para garantir limpeza de memória
+current_ids=$(docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" n8n export:workflow --all 2>/dev/null | jq -r '.[].id' 2>/dev/null || echo "")
 for id in $current_ids; do
-  docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" \
-    n8n update:workflow --id="$id" --active=false >/dev/null 2>&1 || true
+  docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" n8n update:workflow --id="$id" --active=false >/dev/null 2>&1 || true
 done
 sleep 2
 
 # =========================
-# 📥 Importar (Overwrite mode)
+# 📥 Importar
 # =========================
-echo "Importing workflows into n8n..."
+echo "Importing workflows..."
 for workflow_file in "${WORKFLOW_FILES[@]}"; do
   clean_name="${workflow_file#./}"
   target_file="$REMOTE_IMPORT_DIR/${clean_name//\//__}"
-  echo "Importing $clean_name"
   docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" \
     n8n import:workflow --input="$target_file"
 done
 
 # =========================
-# ✅ Ativação Final
+# ✅ Ativação com Double-Toggle
 # =========================
-echo "Activating workflows..."
-all_ids=$(
-  docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" \
-    n8n export:workflow --all 2>/dev/null | jq -r '.[].id' 2>/dev/null || echo ""
-)
+echo "Activating workflows (with registry refresh)..."
+all_ids=$(docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" n8n export:workflow --all 2>/dev/null | jq -r '.[].id' 2>/dev/null || echo "")
 
 for id in $all_ids; do
-  echo "  Activating $id..."
-  docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" \
-    n8n update:workflow --id="$id" --active=true >/dev/null 2>&1 || echo "Warning: Failed to activate $id"
+  echo "  Refreshing $id..."
+  # Ativa -> Desativa -> Ativa (Isso imita o seu clique manual e força o n8n a rearquitetar as rotas)
+  docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" n8n update:workflow --id="$id" --active=true >/dev/null 2>&1
+  docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" n8n update:workflow --id="$id" --active=false >/dev/null 2>&1
+  docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" n8n update:workflow --id="$id" --active=true >/dev/null 2>&1 || echo "    ⚠️  Failed $id"
 done
 
 # =========================
