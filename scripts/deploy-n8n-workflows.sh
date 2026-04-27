@@ -14,8 +14,8 @@ if [ ! -f "$KB_DIR/package.json" ]; then
   exit 1
 fi
 
-echo "📦 Installing knowledge-base dependencies..."
-npm --prefix "$KB_DIR" install
+echo "📦 Installing knowledge-base dependencies from lockfile..."
+npm --prefix "$KB_DIR" ci
 
 echo "🧪 Running knowledge-base tests..."
 npm --prefix "$KB_DIR" test
