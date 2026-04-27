@@ -139,12 +139,14 @@ curl -X POST "https://seu-dominio:8081/webhook/set/kb-bot" \
   -d '{
     "webhook": {
       "enabled": true,
-      "url": "https://seu-dominio/n8n/webhook/kbWhatsApp240001/webhook/whatsapp-kb-event",
+      "url": "https://seu-dominio/n8n/webhook/whatsapp-kb-event",
       "webhookByEvents": false,
       "events": ["MESSAGES_UPSERT"]
     }
   }'
 ```
+
+Use o path simples `/n8n/webhook/whatsapp-kb-event`. Nao reutilize URLs antigas com `workflowId` ou com o nome do node no caminho, porque elas podem deixar de existir depois de reimportar, duplicar ou recriar o workflow.
 
 ### 4. Obter o JID do grupo
 

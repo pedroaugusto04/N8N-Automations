@@ -141,14 +141,11 @@ PY
   )
 done
 
-echo "Deactivating duplicate workflows with the same names as managed workflows"
+echo "Detecting duplicate workflows with active managed replacements"
 current_workflows_file="$(mktemp)"
+duplicate_workflows_file="$(mktemp)"
 docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" n8n export:workflow --all > "$current_workflows_file"
-while IFS=$'\t' read -r duplicate_id duplicate_name; do
-  echo "Deactivating duplicate workflow $duplicate_id ($duplicate_name)"
-  docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" n8n update:workflow --id="$duplicate_id" --active=false
-done < <(
-  python3 - "$current_workflows_file" "${WORKFLOW_FILES[@]}" <<'PY'
+python3 - "$current_workflows_file" "${WORKFLOW_FILES[@]}" > "$duplicate_workflows_file" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -161,26 +158,97 @@ for path in managed_files:
     data = json.loads(path.read_text(encoding="utf-8"))
     workflows = data if isinstance(data, list) else [data]
     for workflow in workflows:
-        managed_by_name[workflow["name"]] = workflow["id"]
+        managed_by_name[workflow["name"]] = {
+            "id": workflow["id"],
+            "active": bool(workflow.get("active") is True),
+        }
 
 current_data = json.loads(current_path.read_text(encoding="utf-8") or "[]")
 current_workflows = current_data if isinstance(current_data, list) else [current_data]
-
 for workflow in current_workflows:
     workflow_id = str(workflow.get("id") or "").strip()
     workflow_name = str(workflow.get("name") or "").strip()
     if not workflow_id or not workflow_name:
         continue
 
-    managed_id = managed_by_name.get(workflow_name)
-    if managed_id and workflow_id != managed_id:
+    managed = managed_by_name.get(workflow_name)
+    if not managed:
+        continue
+
+    managed_id = managed["id"]
+    managed_is_active = managed["active"]
+    if not managed_is_active:
+        continue
+
+    if workflow_id != managed_id:
         print(f"{workflow_id}\t{workflow_name}")
 PY
-)
-rm -f "$current_workflows_file"
+if [ -s "$duplicate_workflows_file" ]; then
+  echo "Removing duplicate workflows that already have an active managed replacement"
+  while IFS=$'\t' read -r duplicate_id duplicate_name; do
+    echo "Queued for removal: $duplicate_id ($duplicate_name)"
+  done < "$duplicate_workflows_file"
 
-echo "Restarting $N8N_SERVICE so active workflows and webhooks are reloaded"
-docker compose -f "$COMPOSE_FILE" restart "$N8N_SERVICE"
+  data_mount_source="$(
+    docker inspect "$container_id" --format '{{json .Mounts}}' \
+      | python3 -c 'import json, sys; mounts=json.loads(sys.stdin.read() or "[]"); print(next((m.get("Source","") for m in mounts if m.get("Destination")=="/home/node/.n8n"), ""))'
+  )"
+
+  if [ -z "$data_mount_source" ]; then
+    echo "Could not resolve the host mount for /home/node/.n8n" >&2
+    rm -f "$current_workflows_file" "$duplicate_workflows_file"
+    exit 1
+  fi
+
+  sqlite_path="$data_mount_source/database.sqlite"
+  if [ ! -f "$sqlite_path" ]; then
+    echo "Could not find n8n SQLite database at $sqlite_path" >&2
+    rm -f "$current_workflows_file" "$duplicate_workflows_file"
+    exit 1
+  fi
+
+  sqlite_backup_path="$BACKUP_DIR/database-before-duplicate-cleanup-$(date -u +%Y%m%dT%H%M%SZ).sqlite"
+  echo "Backing up SQLite database to $sqlite_backup_path"
+  sudo cp "$sqlite_path" "$sqlite_backup_path"
+
+  echo "Stopping $N8N_SERVICE to remove duplicate workflow rows safely"
+  docker compose -f "$COMPOSE_FILE" stop "$N8N_SERVICE"
+
+  sudo python3 - "$duplicate_workflows_file" "$sqlite_path" <<'PY'
+import sqlite3
+import sys
+from pathlib import Path
+
+duplicates_path = Path(sys.argv[1])
+sqlite_path = Path(sys.argv[2])
+duplicate_ids = []
+for line in duplicates_path.read_text(encoding="utf-8").splitlines():
+    line = line.strip()
+    if not line:
+        continue
+    workflow_id = line.split("\t", 1)[0].strip()
+    if workflow_id:
+        duplicate_ids.append(workflow_id)
+
+if duplicate_ids:
+    conn = sqlite3.connect(str(sqlite_path))
+    conn.execute("PRAGMA foreign_keys = ON")
+    cur = conn.cursor()
+    for workflow_id in duplicate_ids:
+        cur.execute("DELETE FROM workflow_entity WHERE id = ?", (workflow_id,))
+    conn.commit()
+    conn.close()
+PY
+
+  echo "Starting $N8N_SERVICE after duplicate cleanup"
+  docker compose -f "$COMPOSE_FILE" up -d "$N8N_SERVICE"
+else
+  echo "No removable duplicate workflows found"
+  echo "Restarting $N8N_SERVICE so active workflows and webhooks are reloaded"
+  docker compose -f "$COMPOSE_FILE" restart "$N8N_SERVICE"
+fi
+
+rm -f "$current_workflows_file" "$duplicate_workflows_file"
 
 echo "Waiting for $N8N_SERVICE to become ready"
 for attempt in $(seq 1 30); do
