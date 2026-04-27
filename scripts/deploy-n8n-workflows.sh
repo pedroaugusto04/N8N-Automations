@@ -119,25 +119,33 @@ for workflow_file in "${WORKFLOW_FILES[@]}"; do
 done
 
 # =========================
-# ✅ Ativar via CLI
+# 🔄 Desativar → Reativar (garante re-registro dos webhooks)
 # =========================
-echo "Activating workflows..."
+echo "Collecting workflow IDs..."
 workflow_ids=$(
   docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" \
     n8n export:workflow --all 2>/dev/null | jq -r '.[].id' 2>/dev/null || echo ""
 )
 
-for id in $workflow_ids; do
-  echo "Activating $id..."
-  docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" \
-    n8n publish:workflow --id="$id" >/dev/null 2>&1 || echo "Warning: Failed to activate $id"
-done
+if [ -z "$workflow_ids" ]; then
+  echo "⚠️  No workflow IDs found — nothing to activate"
+else
+  # Passo 1: Desativar todos (isso remove os listeners de webhook do registro)
+  echo "Deactivating all workflows to clear webhook registry..."
+  for id in $workflow_ids; do
+    docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" \
+      n8n unpublish:workflow --id="$id" > /dev/null 2>&1 || true
+  done
+  sleep 2
 
-# =========================
-# 🔄 REFRESH (Reseta o cache de Webhooks)
-# =========================
-echo "Refreshing n8n container to ensure webhooks registry is clean..."
-docker compose -f "$COMPOSE_FILE" restart "$N8N_SERVICE"
+  # Passo 2: Reativar todos (isso re-registra os listeners de webhook corretamente)
+  echo "Re-activating all workflows (webhooks will be re-registered)..."
+  for id in $workflow_ids; do
+    echo "  Publishing $id..."
+    docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" \
+      n8n publish:workflow --id="$id" > /dev/null 2>&1 || echo "  ⚠️  Failed to activate $id"
+  done
+fi
 
 # =========================
 # ⏳ Verificação final de saúde
