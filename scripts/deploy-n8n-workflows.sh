@@ -180,10 +180,16 @@ for id in $all_ids; do
 done
 
 # =========================
+# 🔄 RESTART (Última defesa contra Webhooks Fantasmas)
+# =========================
+echo "Restarting n8n to force webhook registry refresh..."
+docker compose -f "$COMPOSE_FILE" restart "$N8N_SERVICE"
+
+# =========================
 # ⏳ Verificação final de saúde
 # =========================
 echo "Waiting for n8n API to be ready..."
-for i in $(seq 1 30); do
+for i in $(seq 1 60); do
   if curl -s "$N8N_API_URL/healthz" >/dev/null 2>&1; then
     echo "✅ n8n API is UP"
     break
@@ -194,6 +200,8 @@ done
 
 echo ""
 echo "Final status of workflows:"
+# Espera mais um pouco pro CLI carregar pós-restart
+sleep 5
 docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" \
   n8n export:workflow --all \
   | jq -r '.[] | "\(.id) => active=\(.active) (\(.name))"'
@@ -203,4 +211,4 @@ docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" \
 # =========================
 rm -rf "$TMP_DIR"
 
-echo "✅ DEPLOY COMPLETE: All workflows synced, activated and webhooks refreshed!"
+echo "✅ DEPLOY COMPLETE: All workflows synced and n8n refreshed!"
