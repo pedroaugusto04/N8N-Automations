@@ -130,20 +130,21 @@ workflow_ids=$(
 if [ -z "$workflow_ids" ]; then
   echo "⚠️  No workflow IDs found — nothing to activate"
 else
-  # Passo 1: Desativar todos (isso remove os listeners de webhook do registro)
+  # Passo 1: Desativar todos (remove listeners de webhook do registro interno)
   echo "Deactivating all workflows to clear webhook registry..."
   for id in $workflow_ids; do
+    echo "  Deactivating $id..."
     docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" \
-      n8n unpublish:workflow --id="$id" > /dev/null 2>&1 || true
+      n8n update:workflow --id="$id" --active=false 2>&1 || echo "  ⚠️  Failed to deactivate $id"
   done
-  sleep 2
+  sleep 3
 
-  # Passo 2: Reativar todos (isso re-registra os listeners de webhook corretamente)
+  # Passo 2: Reativar todos (re-registra os listeners de webhook corretamente)
   echo "Re-activating all workflows (webhooks will be re-registered)..."
   for id in $workflow_ids; do
-    echo "  Publishing $id..."
+    echo "  Activating $id..."
     docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" \
-      n8n publish:workflow --id="$id" > /dev/null 2>&1 || echo "  ⚠️  Failed to activate $id"
+      n8n update:workflow --id="$id" --active=true 2>&1 || echo "  ⚠️  Failed to activate $id"
   done
 fi
 
