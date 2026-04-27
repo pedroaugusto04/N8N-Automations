@@ -60,9 +60,21 @@ for i in $(seq 1 60); do
   sleep 2
 done
 
-# 6. Ativação explícita de TODOS os workflows
-echo "⚡ Activating all workflows..."
-sleep 5  # Dá tempo pro n8n carregar os workflows do banco
+# 6. Ativação via REST API (mesma coisa que clicar no botão na UI)
+# O CLI 'n8n update:workflow --active=true' só atualiza o banco, NÃO registra webhooks na runtime.
+# A REST API faz ambos, igual ao toggle manual.
+echo "⚡ Activating all workflows via REST API..."
+sleep 5  # Dá tempo pro n8n inicializar completamente
+
+# Ler credenciais de auth do ambiente
+AUTH_USER="${N8N_BASIC_AUTH_USER:-}"
+AUTH_PASS="${N8N_BASIC_AUTH_PASSWORD:-}"
+# Fallback: ler do .env se não estiver no ambiente
+if [ -z "$AUTH_USER" ] && [ -f .env ]; then
+  AUTH_USER=$(grep '^N8N_BASIC_AUTH_USER=' .env | cut -d'=' -f2- | tr -d "\"'" || true)
+  AUTH_PASS=$(grep '^N8N_BASIC_AUTH_PASSWORD=' .env | cut -d'=' -f2- | tr -d "\"'" || true)
+fi
+
 ALL_IDS=$(
   docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" \
     n8n export:workflow --all 2>/dev/null | jq -r '.[] | .id' 2>/dev/null || echo ""
@@ -72,9 +84,29 @@ if [ -z "$ALL_IDS" ]; then
   echo "⚠️  Could not read workflow IDs — check n8n logs"
 else
   for id in $ALL_IDS; do
-    echo "  ✅ Activating workflow $id..."
+    echo "  🔄 Toggling $id (off → on)..."
+    # Desativar (remove webhook da memória)
     docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" \
-      n8n update:workflow --id="$id" --active=true 2>&1 || echo "  ⚠️  Failed to activate $id"
+      curl -s -o /dev/null -w "%{http_code}" \
+      -u "$AUTH_USER:$AUTH_PASS" \
+      -X PATCH -H "Content-Type: application/json" \
+      -d '{"active":false}' \
+      "http://localhost:5678/rest/workflows/$id" 2>/dev/null || true
+    sleep 1
+    # Ativar (registra webhook na memória — igual ao botão da UI)
+    result=$(docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" \
+      curl -s -o /dev/null -w "%{http_code}" \
+      -u "$AUTH_USER:$AUTH_PASS" \
+      -X PATCH -H "Content-Type: application/json" \
+      -d '{"active":true}' \
+      "http://localhost:5678/rest/workflows/$id" 2>/dev/null || echo "000")
+    if [ "$result" = "200" ]; then
+      echo "    ✅ Activated (HTTP 200)"
+    else
+      echo "    ⚠️  HTTP $result — trying fallback CLI..."
+      docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" \
+        n8n update:workflow --id="$id" --active=true 2>&1 || true
+    fi
   done
 fi
 
