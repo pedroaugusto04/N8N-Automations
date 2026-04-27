@@ -1,0 +1,132 @@
+[
+  {
+    "name": "KB Adapter - Onboarding",
+    "active": true,
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "kb-onboarding",
+          "responseMode": "responseNode",
+          "options": {
+            "rawBody": true
+          }
+        },
+        "id": "kb-onboarding-webhook",
+        "name": "Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          0,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const item = $input.first() || {};\nconst json = item.json || {};\nconst payload = json.body && typeof json.body === 'object' ? json.body : json;\nconst encoded = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64');\nconst tempPath = `/tmp/kb-onboarding-${Date.now()}-${Math.random().toString(16).slice(2)}.b64`;\nreturn [{ json: { payload_b64: encoded, payload_file_path: tempPath } }];"
+        },
+        "id": "kb-onboarding-prepare",
+        "name": "Prepare Payload",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          240,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "command": "=echo '{{$json.payload_b64}}' > '{{$json.payload_file_path}}' && node /home/node/knowledge-base/dist/cli/onboarding.js --file '{{$json.payload_file_path}}'; rm -f '{{$json.payload_file_path}}'"
+        },
+        "id": "kb-onboarding-run",
+        "name": "Run Onboarding CLI",
+        "type": "n8n-nodes-base.executeCommand",
+        "typeVersion": 1,
+        "position": [
+          480,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const stdout = String($json.stdout || '').trim();\nlet parsed;\ntry {\n  parsed = JSON.parse(stdout || '{}');\n} catch {\n  parsed = { ok: false, message: stdout || 'invalid_json_from_onboarding_cli' };\n}\nreturn [{ json: parsed }];"
+        },
+        "id": "kb-onboarding-parse",
+        "name": "Parse Result",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          720,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json }}",
+          "options": {
+            "responseCode": 200
+          }
+        },
+        "id": "kb-onboarding-respond",
+        "name": "Respond",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.1,
+        "position": [
+          960,
+          0
+        ]
+      }
+    ],
+    "connections": {
+      "Webhook": {
+        "main": [
+          [
+            {
+              "node": "Prepare Payload",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Prepare Payload": {
+        "main": [
+          [
+            {
+              "node": "Run Onboarding CLI",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Run Onboarding CLI": {
+        "main": [
+          [
+            {
+              "node": "Parse Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parse Result": {
+        "main": [
+          [
+            {
+              "node": "Respond",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1",
+      "binaryMode": "separate"
+    }
+  }
+]

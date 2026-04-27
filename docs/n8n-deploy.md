@@ -1,48 +1,53 @@
-# Deploy automatico dos workflows do n8n
+# Deploy automatico do Knowledge Base
 
-Este repositorio publica os workflows no n8n da VPS a cada push na branch `main`.
+Este repositorio publica apenas os **adapters** do n8n. O core do produto roda em código em `knowledge-base/`.
 
-O GitHub Actions acessa a VPS por SSH, entra no clone deste repositorio, executa `git pull --ff-only origin main`, importa os workflows com o CLI do n8n dentro do container Docker e reinicia o servico `n8n`.
+## O que o deploy faz
+
+1. acessa a VPS por SSH
+2. executa `git pull --ff-only origin main`
+3. roda `npm --prefix knowledge-base install`
+4. roda `npm --prefix knowledge-base test`
+5. valida os entrypoints em `knowledge-base/dist/cli/`
+6. importa `knowledge-base/workflows/*.json`
+7. reinicia/publica o n8n
 
 ## GitHub Secrets obrigatorios
 
-Crie estes secrets em `Settings > Secrets and variables > Actions > Repository secrets`:
-
 | Secret | Valor esperado |
 | --- | --- |
-| `VPS_HOST` | IP ou hostname publico da VPS, por exemplo `203.0.113.10` ou `n8n.seudominio.com`. |
-| `VPS_USER` | Usuario Linux usado para o deploy, por exemplo `deploy` ou `ubuntu`. |
-| `VPS_SSH_PRIVATE_KEY` | Chave privada SSH desse usuario. Use uma chave dedicada para deploy, sem senha, no formato completo `-----BEGIN OPENSSH PRIVATE KEY-----...`. |
-| `VPS_SSH_KNOWN_HOSTS` | Linha de `known_hosts` da VPS. Gere com `ssh-keyscan -p 22 seu-host`. |
-| `VPS_REPO_PATH` | Caminho absoluto do clone deste repositorio na VPS, por exemplo `/home/ubuntu/N8N-Automations`. |
+| `VPS_HOST` | IP ou hostname publico da VPS |
+| `VPS_USER` | Usuario Linux usado no deploy |
+| `VPS_SSH_PRIVATE_KEY` | Chave privada SSH do usuario |
+| `VPS_SSH_KNOWN_HOSTS` | Saida de `ssh-keyscan` da VPS |
+| `VPS_REPO_PATH` | Caminho absoluto do clone na VPS |
 
 ## GitHub Secret opcional
 
 | Secret | Valor esperado |
 | --- | --- |
-| `VPS_SSH_PORT` | Porta SSH da VPS. Se nao existir, o workflow usa `22`. |
+| `VPS_SSH_PORT` | Porta SSH. Default `22` |
 
 ## Preparo unico da VPS
 
-1. Clone este repositorio na VPS no caminho configurado em `VPS_REPO_PATH`.
-2. Configure o arquivo `.env` diretamente na VPS. Ele nao deve ser commitado.
-3. Garanta que `docker compose -f docker-compose.yml up -d n8n` funciona na VPS.
-4. Adicione a chave publica correspondente a `VPS_SSH_PRIVATE_KEY` no `~/.ssh/authorized_keys` do usuario de deploy.
-5. Garanta que esse usuario consegue executar `git pull` e `docker compose` no diretorio do repositorio.
-
-## Workflows importados
-
-O script importa:
-
-- todos os arquivos `*.json` na raiz do repositorio;
-- todos os arquivos `knowledge-base/knowledge-base-*.json`.
-
-Antes de importar, o script exporta um backup dos workflows atuais para `backups/n8n-workflows/` na VPS. Essa pasta e ignorada pelo Git.
+1. Clone este repositorio na VPS.
+2. Configure `.env` diretamente na VPS.
+3. Garanta `docker compose up -d n8n`.
+4. Garanta `npm` disponível na VPS.
+5. Garanta permissão de `git pull` e `docker compose` para o usuário de deploy.
 
 ## Segurança
 
-Credenciais ficam fora do Git:
+Credenciais do Knowledge Base não devem ir para GitHub nem para workflow hardcoded:
 
-- `.env` local e da VPS continuam ignorados;
-- a chave SSH fica somente em GitHub Secrets;
-- o workflow usa `StrictHostKeyChecking=yes` com `VPS_SSH_KNOWN_HOSTS`, evitando aceitar host SSH desconhecido automaticamente.
+- `KB_REVIEW_AI_API_KEY`
+- `KB_CONVERSATION_AI_API_KEY`
+- `KB_GITHUB_APP_WEBHOOK_SECRET`
+- `KB_GITHUB_API_TOKEN`
+- `KB_GITHUB_APP_INSTALL_URL`
+- `KB_TELEGRAM_BOT_TOKEN`
+- `KB_WPP_PAIRING_URL`
+- `EVOLUTION_API_KEY`
+- `KB_VAULT_GIT_PUSH_TOKEN`
+
+Tudo isso deve ficar em `.env` na VPS.

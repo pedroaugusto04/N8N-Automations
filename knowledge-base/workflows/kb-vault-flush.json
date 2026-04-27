@@ -1,0 +1,149 @@
+[
+  {
+    "name": "KB Adapter - Vault Flush",
+    "active": true,
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "cronExpression",
+                "expression": "*/5 * * * *"
+              }
+            ]
+          }
+        },
+        "id": "kb-flush-cron",
+        "name": "Every 5 Minutes",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "command": "node /home/node/knowledge-base/dist/cli/batch-flush.js"
+        },
+        "id": "kb-flush-cli",
+        "name": "Run Batch Flush",
+        "type": "n8n-nodes-base.executeCommand",
+        "typeVersion": 1,
+        "position": [
+          240,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const stdout = String($json.stdout || '').trim();\nlet parsed;\ntry {\n  parsed = JSON.parse(stdout || '{}');\n} catch {\n  parsed = { ok: false, message: stdout || 'invalid_json_from_batch_flush_cli' };\n}\nreturn [{ json: parsed }];"
+        },
+        "id": "kb-flush-parse",
+        "name": "Parse Flush Result",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          480,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "version": 2
+            },
+            "conditions": [
+              {
+                "leftValue": "={{ String($json.ok) }}",
+                "rightValue": "false",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          }
+        },
+        "id": "kb-flush-alert-check",
+        "name": "Needs Alert?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          720,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "=https://api.telegram.org/bot{{$env.KB_TELEGRAM_BOT_TOKEN}}/sendMessage",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ chat_id: $env.KB_TELEGRAM_CHAT_ID, text: $json.message || 'KB batch flush failed' }) }}"
+        },
+        "id": "kb-flush-alert",
+        "name": "Telegram Failure Alert",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          960,
+          0
+        ]
+      }
+    ],
+    "connections": {
+      "Every 5 Minutes": {
+        "main": [
+          [
+            {
+              "node": "Run Batch Flush",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Run Batch Flush": {
+        "main": [
+          [
+            {
+              "node": "Parse Flush Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parse Flush Result": {
+        "main": [
+          [
+            {
+              "node": "Needs Alert?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Needs Alert?": {
+        "main": [
+          [
+            {
+              "node": "Telegram Failure Alert",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1",
+      "binaryMode": "separate"
+    }
+  }
+]
