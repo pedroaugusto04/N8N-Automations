@@ -1,6 +1,6 @@
 [
   {
-    "updatedAt": "2026-04-27T04:42:42.868Z",
+    "updatedAt": "2026-04-27T04:57:24.000Z",
     "createdAt": "2026-04-27T03:40:00.589Z",
     "id": "S4kpRhwJWjREFlCp",
     "name": "Chat with a database using AI",
@@ -200,27 +200,27 @@
       "instanceId": "640e2b64548de126c4bfd6524a25adc96a52abe563e283d5677cde8c544e242f"
     },
     "pinData": {},
-    "versionId": "56fcfd40-b71a-4d3f-a00d-539ff63486be",
-    "activeVersionId": "4cf8f0c2-23ab-48bc-b453-565d7d8b0cb3",
-    "versionCounter": 23,
+    "versionId": "addf3dd3-5f01-494b-8a05-3c9421f286a7",
+    "activeVersionId": "addf3dd3-5f01-494b-8a05-3c9421f286a7",
+    "versionCounter": 24,
     "triggerCount": 0,
     "tags": [],
     "shared": [
       {
-        "updatedAt": "2026-04-27T03:40:00.594Z",
-        "createdAt": "2026-04-27T03:40:00.594Z",
+        "updatedAt": "2026-04-27T01:08:17.124Z",
+        "createdAt": "2026-04-27T01:08:17.124Z",
         "role": "workflow:owner",
         "workflowId": "S4kpRhwJWjREFlCp",
-        "projectId": "PTPubzEf62cPswRq",
+        "projectId": "3cyfZ9Z49rQj4oyf",
         "project": {
-          "updatedAt": "2026-04-27T03:37:44.916Z",
-          "createdAt": "2026-04-27T03:33:20.870Z",
-          "id": "PTPubzEf62cPswRq",
-          "name": "Pedro Duarte <pedroaugustoaduarte@gmail.com>",
+          "updatedAt": "2026-04-27T01:03:01.275Z",
+          "createdAt": "2026-04-27T01:03:01.275Z",
+          "id": "3cyfZ9Z49rQj4oyf",
+          "name": "Unnamed Project",
           "type": "personal",
           "icon": null,
           "description": null,
-          "creatorId": "ae62cd26-0424-446d-bf3e-1e703e78fa8b"
+          "creatorId": "b02fd094-3d4f-4c16-9b73-ee1ac26bbaf6"
         }
       }
     ],
