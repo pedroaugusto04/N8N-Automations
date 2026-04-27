@@ -1,9 +1,11 @@
 [
   {
+    "updatedAt": "2026-04-27T04:43:05.711Z",
+    "createdAt": "2026-04-27T03:39:57.094Z",
     "id": "feconectDailySummary240001",
     "name": "FeConect - Daily Summary Telegram",
     "description": null,
-    "active": false,
+    "active": true,
     "isArchived": false,
     "nodes": [
       {
@@ -23,7 +25,8 @@
         "position": [
           0,
           0
-        ]
+        ],
+        "id": "e37307c7-0111-490b-a7f9-b7fd0c815ac4"
       },
       {
         "parameters": {
@@ -37,7 +40,14 @@
         "position": [
           288,
           0
-        ]
+        ],
+        "id": "f08ed69f-4759-4d7a-874a-769c3bda63cd",
+        "credentials": {
+          "postgres": {
+            "id": "cIQ4egbpB84tOCMr",
+            "name": "Postgres FeConect"
+          }
+        }
       },
       {
         "parameters": {
@@ -51,6 +61,7 @@
           288,
           208
         ],
+        "id": "24c40b84-3fac-476f-9956-7cdf14a248fc",
         "credentials": {
           "sshPrivateKey": {
             "id": "2urEEfcr9NaOCNJN",
@@ -61,7 +72,8 @@
       {
         "parameters": {
           "mode": "combine",
-          "combineBy": "combineByPosition"
+          "combineBy": "combineByPosition",
+          "options": {}
         },
         "name": "Merge Daily Context",
         "type": "n8n-nodes-base.merge",
@@ -69,7 +81,8 @@
         "position": [
           560,
           80
-        ]
+        ],
+        "id": "2c8cff56-bc9d-4758-ad00-a58a7fb7a312"
       },
       {
         "parameters": {
@@ -81,7 +94,8 @@
         "position": [
           832,
           80
-        ]
+        ],
+        "id": "7e1a207c-93a6-497a-ba82-dfea6ebd630e"
       },
       {
         "parameters": {
@@ -96,10 +110,12 @@
           1104,
           80
         ],
+        "id": "32ca30ed-b042-43e5-aaf8-b75d6a7532ad",
+        "webhookId": "b701e440-8020-40e7-96b9-80f7e4955101",
         "credentials": {
           "telegramApi": {
-            "id": "tgCredFecon24001",
-            "name": "Telegram FeConect"
+            "id": "FWUwWMyPu0F0MTjw",
+            "name": "Telegram Feconect"
           }
         }
       }
@@ -169,6 +185,39 @@
     "settings": {
       "executionOrder": "v1",
       "binaryMode": "separate"
+    },
+    "staticData": null,
+    "meta": {
+      "templateCredsSetupCompleted": true
+    },
+    "pinData": {},
+    "versionId": "f5c7f35a-6bec-47d3-967d-e974676b1a37",
+    "activeVersionId": "1598a316-c612-4f05-9f6e-812f0f63f7d1",
+    "versionCounter": 29,
+    "triggerCount": 1,
+    "tags": [],
+    "shared": [
+      {
+        "updatedAt": "2026-04-27T03:39:57.099Z",
+        "createdAt": "2026-04-27T03:39:57.099Z",
+        "role": "workflow:owner",
+        "workflowId": "feconectDailySummary240001",
+        "projectId": "PTPubzEf62cPswRq",
+        "project": {
+          "updatedAt": "2026-04-27T03:37:44.916Z",
+          "createdAt": "2026-04-27T03:33:20.870Z",
+          "id": "PTPubzEf62cPswRq",
+          "name": "Pedro Duarte <pedroaugustoaduarte@gmail.com>",
+          "type": "personal",
+          "icon": null,
+          "description": null,
+          "creatorId": "ae62cd26-0424-446d-bf3e-1e703e78fa8b"
+        }
+      }
+    ],
+    "versionMetadata": {
+      "name": null,
+      "description": null
     }
   }
 ]

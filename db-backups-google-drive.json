@@ -1,129 +1,155 @@
-{
-  "id": "dbBackupsGDrive240001",
-  "name": "DB Backups to Google Drive",
-  "description": "Executa backups diários dos bancos definidos em DB_BACKUP_TARGETS_JSON, organiza local e Google Drive em pastas por data e horário, aplica rotação local e remota e envia os arquivos para o Google Drive via rclone executando remotamente por SSH.",
-  "active": true,
-  "isArchived": false,
-  "nodes": [
-    {
-      "parameters": {
-        "rule": {
-          "interval": [
+[
+  {
+    "updatedAt": "2026-04-27T04:43:42.323Z",
+    "createdAt": "2026-04-27T03:39:50.253Z",
+    "id": "dbBackupsGDrive240001",
+    "name": "DB Backups to Google Drive",
+    "description": "Executa backups diários dos bancos definidos em DB_BACKUP_TARGETS_JSON, organiza local e Google Drive em pastas por data e horário, aplica rotação local e remota e envia os arquivos para o Google Drive via rclone executando remotamente por SSH.",
+    "active": true,
+    "isArchived": false,
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "cronExpression",
+                "expression": "={{ $env.DB_BACKUP_CRON || '0 3 * * *' }}"
+              }
+            ]
+          }
+        },
+        "name": "Daily Backup Schedule",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          -528,
+          304
+        ],
+        "id": "6b91006f-c979-4949-9282-2bb776eff9a3"
+      },
+      {
+        "parameters": {
+          "jsCode": "const env = (typeof $env === 'object' && $env)\n  ? $env\n  : (typeof process !== 'undefined' && process.env ? process.env : {});\n\nconst requiredVars = [\n  'DB_BACKUP_TARGETS_JSON',\n  'DB_BACKUP_LOCAL_DIR',\n  'DB_BACKUP_DRIVE_REMOTE',\n  'DB_BACKUP_DRIVE_FOLDER',\n];\n\nconst missingVars = requiredVars.filter((key) => !String(env[key] || '').trim());\nif (missingVars.length > 0) {\n  throw new Error(`Variaveis obrigatorias ausentes: ${missingVars.join(', ')}`);\n}\n\nlet targets;\ntry {\n  targets = JSON.parse(env.DB_BACKUP_TARGETS_JSON);\n} catch (error) {\n  throw new Error(`DB_BACKUP_TARGETS_JSON invalido: ${error.message}`);\n}\n\nif (!Array.isArray(targets) || targets.length === 0) {\n  throw new Error('DB_BACKUP_TARGETS_JSON deve conter ao menos um banco');\n}\n\nconst enabledTargets = targets.filter((target) => target && target.enabled !== false);\nif (enabledTargets.length === 0) {\n  throw new Error('Nenhum banco habilitado em DB_BACKUP_TARGETS_JSON');\n}\n\nconst toPositiveInt = (value, fallback) => {\n  const parsed = Number.parseInt(String(value ?? ''), 10);\n  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;\n};\n\nconst config = {\n  timezone: String(env.DB_BACKUP_TIMEZONE || env.GENERIC_TIMEZONE || 'America/Sao_Paulo'),\n  local_dir: String(env.DB_BACKUP_LOCAL_DIR),\n  drive_remote: String(env.DB_BACKUP_DRIVE_REMOTE),\n  drive_folder: String(env.DB_BACKUP_DRIVE_FOLDER),\n  local_retention_days: toPositiveInt(env.DB_BACKUP_LOCAL_RETENTION_DAYS, 7),\n  drive_retention_days: toPositiveInt(env.DB_BACKUP_DRIVE_RETENTION_DAYS, 30),\n  targets: enabledTargets,\n};\n\nconst configB64 = Buffer.from(JSON.stringify(config), 'utf8').toString('base64');\nconst command = `python3 - <<'PY'\nimport base64\nimport json\nimport os\nimport re\nimport shlex\nimport shutil\nimport subprocess\nfrom datetime import datetime, timezone\n\nCONFIG = json.loads(base64.b64decode('${configB64}').decode('utf-8'))\n\n\ndef sanitize_name(value):\n    safe = re.sub(r'[^A-Za-z0-9._-]+', '-', str(value or '').strip())\n    safe = safe.strip('.-')\n    return safe or 'database'\n\n\ndef run_command(command, env=None):\n    result = subprocess.run(\n        ['bash', '-lc', command],\n        capture_output=True,\n        text=True,\n        env=env,\n        check=False,\n    )\n    if result.returncode != 0:\n        raise RuntimeError((result.stderr or result.stdout or 'command failed').strip())\n    return result\n\n\ndef quote(value):\n    return shlex.quote(str(value))\n\n\ndef ensure_tool(tool_name):\n    if shutil.which(tool_name) is None:\n        raise RuntimeError(f'Ferramenta obrigatoria ausente no host remoto: {tool_name}')\n\n\nfor base_tool in ['bash', 'find', 'gzip', 'python3', 'rclone']:\n    ensure_tool(base_tool)\n\nsummary = {\n    'startedAt': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),\n    'timezone': CONFIG['timezone'],\n    'localRetentionDays': CONFIG['local_retention_days'],\n    'driveRetentionDays': CONFIG['drive_retention_days'],\n    'driveFolder': CONFIG['drive_folder'],\n    'driveRemote': CONFIG['drive_remote'],\n    'successCount': 0,\n    'failureCount': 0,\n    'backups': [],\n    'failures': [],\n}\n\nfor raw_target in CONFIG['targets']:\n    target = dict(raw_target)\n    name = sanitize_name(target.get('name'))\n    db_type = str(target.get('type') or '').strip().lower()\n    target_local_root = os.path.join(CONFIG['local_dir'], name)\n    target_remote_root = f\"{CONFIG['drive_remote']}:{CONFIG['drive_folder'].strip('/')}/{name}\"\n    execution_dt = datetime.now(timezone.utc)\n    date_path = execution_dt.strftime('%Y/%m/%d')\n    time_dir = execution_dt.strftime('%H%M%SZ')\n    timestamp = execution_dt.strftime('%Y%m%dT%H%M%SZ')\n    local_dir = os.path.join(target_local_root, *date_path.split('/'), time_dir)\n    remote_dir = f\"{target_remote_root}/{date_path}/{time_dir}\"\n\n    try:\n        if db_type not in {'postgres', 'mysql', 'mongodb'}:\n            raise RuntimeError(f\"Tipo de banco nao suportado: {db_type}\")\n\n        if db_type == 'postgres':\n            ensure_tool('pg_dump')\n            database = target.get('database')\n            username = target.get('username')\n            password = target.get('password', '')\n            host = target.get('host', '127.0.0.1')\n            port = int(target.get('port', 5432))\n            extra_args = str(target.get('extra_args') or '')\n            if not database or not username:\n                raise RuntimeError('Postgres exige database e username')\n            filename = f\"{name}_{timestamp}.dump\"\n            local_path = os.path.join(local_dir, filename)\n            env = os.environ.copy()\n            env['PGPASSWORD'] = str(password)\n            cmd = [\n                'pg_dump',\n                '--host', str(host),\n                '--port', str(port),\n                '--username', str(username),\n                '--dbname', str(database),\n                '--format=custom',\n                '--compress=9',\n                '--no-password',\n                '--file', local_path,\n            ]\n            if extra_args:\n                cmd.extend(shlex.split(extra_args))\n            backup_command = ' '.join(quote(part) for part in cmd)\n        elif db_type == 'mysql':\n            ensure_tool('mysqldump')\n            database = target.get('database')\n            username = target.get('username')\n            password = target.get('password', '')\n            host = target.get('host', '127.0.0.1')\n            port = int(target.get('port', 3306))\n            extra_args = str(target.get('extra_args') or '')\n            if not database or not username:\n                raise RuntimeError('MySQL exige database e username')\n            filename = f\"{name}_{timestamp}.sql.gz\"\n            local_path = os.path.join(local_dir, filename)\n            cmd = [\n                'mysqldump',\n                '--host', str(host),\n                '--port', str(port),\n                '--user', str(username),\n                '--single-transaction',\n                '--quick',\n                '--routines',\n                '--events',\n                '--triggers',\n                str(database),\n            ]\n            if extra_args:\n                cmd.extend(shlex.split(extra_args))\n            backup_command = f\"MYSQL_PWD={quote(password)} {' '.join(quote(part) for part in cmd)} | gzip -9 > {quote(local_path)}\"\n        else:\n            ensure_tool('mongodump')\n            database = target.get('database')\n            extra_args = str(target.get('extra_args') or '')\n            filename = f\"{name}_{timestamp}.archive.gz\"\n            local_path = os.path.join(local_dir, filename)\n            connection_uri = str(target.get('connection_uri') or '').strip()\n            auth_database = str(target.get('auth_database') or 'admin')\n            if connection_uri:\n                cmd = ['mongodump', f'--uri={connection_uri}']\n                if database:\n                    cmd.extend(['--db', str(database)])\n            else:\n                username = target.get('username')\n                password = target.get('password', '')\n                host = target.get('host', '127.0.0.1')\n                port = int(target.get('port', 27017))\n                if not database or not username:\n                    raise RuntimeError('MongoDB exige connection_uri ou database e username')\n                cmd = [\n                    'mongodump',\n                    '--host', str(host),\n                    '--port', str(port),\n                    '--username', str(username),\n                    '--password', str(password),\n                    '--authenticationDatabase', auth_database,\n                    '--db', str(database),\n                ]\n            if extra_args:\n                cmd.extend(shlex.split(extra_args))\n            cmd.append('--archive')\n            backup_command = f\"{' '.join(quote(part) for part in cmd)} | gzip -9 > {quote(local_path)}\"\n\n        os.makedirs(local_dir, exist_ok=True)\n        run_command(f\"mkdir -p {quote(local_dir)}\")\n        run_command(f\"rclone mkdir {quote(remote_dir)}\")\n        run_command(backup_command, env=env if db_type == 'postgres' else None)\n        run_command(f\"rclone copyto {quote(local_path)} {quote(remote_dir + '/' + filename)}\")\n        run_command(f\"find {quote(target_local_root)} -type f -mtime +{int(CONFIG['local_retention_days'])} -delete\")\n        run_command(f\"find {quote(target_local_root)} -depth -type d -empty -delete\")\n        run_command(f\"rclone delete {quote(target_remote_root)} --min-age {int(CONFIG['drive_retention_days'])}d\")\n        run_command(f\"rclone rmdirs {quote(target_remote_root)}\")\n\n        file_size_bytes = os.path.getsize(local_path)\n        summary['successCount'] += 1\n        summary['backups'].append({\n            'name': name,\n            'type': db_type,\n            'filename': filename,\n            'localPath': local_path,\n            'remotePath': f\"{remote_dir}/{filename}\",\n            'sizeBytes': file_size_bytes,\n            'finishedAt': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),\n        })\n    except Exception as exc:\n        summary['failureCount'] += 1\n        summary['failures'].append({\n            'name': name,\n            'type': db_type,\n            'error': str(exc),\n            'failedAt': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),\n        })\n\nsummary['finishedAt'] = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')\nprint(json.dumps(summary, ensure_ascii=True))\nPY`;\n\nreturn [{\n  json: {\n    command,\n    configSummary: {\n      timezone: config.timezone,\n      localRetentionDays: config.local_retention_days,\n      driveRetentionDays: config.drive_retention_days,\n      driveFolder: config.drive_folder,\n      targetNames: enabledTargets.map((target) => String(target.name || 'database')),\n      targetCount: enabledTargets.length,\n    },\n  },\n}];"
+        },
+        "name": "Build Backup Command",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -240,
+          304
+        ],
+        "id": "d4145db5-c6ed-4a68-8026-521fb593a1ec"
+      },
+      {
+        "parameters": {
+          "authentication": "privateKey",
+          "command": "={{ $json.command }}"
+        },
+        "name": "Run Remote Backups",
+        "type": "n8n-nodes-base.ssh",
+        "typeVersion": 1,
+        "position": [
+          48,
+          304
+        ],
+        "id": "c98c152e-9556-4d58-add0-45d290cc7e54",
+        "credentials": {
+          "sshPrivateKey": {
+            "id": "qcbkFBgMRQChM8sI",
+            "name": "SSH Private Key account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "const stdout = String(items[0]?.json?.stdout ?? items[0]?.json?.data ?? '').trim();\nconst stderr = String(items[0]?.json?.stderr ?? items[0]?.json?.error ?? '').trim();\nconst exitCode = items[0]?.json?.exitCode ?? items[0]?.json?.code ?? null;\n\nif (!stdout) {\n  const diagnostics = [\n    exitCode !== null ? `exitCode=${exitCode}` : '',\n    stderr ? `stderr=${stderr}` : '',\n  ].filter(Boolean).join(' | ');\n  throw new Error(`O host remoto nao retornou resumo do backup${diagnostics ? `: ${diagnostics}` : ''}`);\n}\n\nlet summary;\ntry {\n  summary = JSON.parse(stdout);\n} catch (error) {\n  const preview = stdout.slice(0, 500);\n  throw new Error(`Resumo de backup invalido: ${error.message}. Saida recebida: ${preview}`);\n}\n\nsummary.hadFailures = Number(summary.failureCount || 0) > 0;\nsummary.message = [\n  `Backups executados: ${summary.successCount || 0}`,\n  `Falhas: ${summary.failureCount || 0}`,\n  `Retencao local: ${summary.localRetentionDays || 'n/d'} dia(s)`,\n  `Retencao Drive: ${summary.driveRetentionDays || 'n/d'} dia(s)`,\n].join(' | ');\n\nif (summary.hadFailures) {\n  const failedTargets = Array.isArray(summary.failures)\n    ? summary.failures.map((item) => `${item.name}: ${item.error}`).join('; ')\n    : 'falhas nao detalhadas';\n  throw new Error(`Backup concluido com falhas. ${failedTargets}`);\n}\n\nreturn [{ json: summary }];"
+        },
+        "name": "Parse Backup Summary",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          336,
+          304
+        ],
+        "id": "aa1693cc-5d82-4725-9c86-56d466ccbd2d"
+      }
+    ],
+    "connections": {
+      "Daily Backup Schedule": {
+        "main": [
+          [
             {
-              "field": "cronExpression",
-              "expression": "={{ $env.DB_BACKUP_CRON || '0 3 * * *' }}"
+              "node": "Build Backup Command",
+              "type": "main",
+              "index": 0
             }
           ]
-        }
+        ]
       },
-      "name": "Daily Backup Schedule",
-      "type": "n8n-nodes-base.scheduleTrigger",
-      "typeVersion": 1.2,
-      "position": [
-        -528,
-        304
-      ],
-      "id": "6b91006f-c979-4949-9282-2bb776eff9a3"
-    },
-    {
-      "parameters": {
-        "jsCode": "const env = (typeof $env === 'object' && $env)\n  ? $env\n  : (typeof process !== 'undefined' && process.env ? process.env : {});\n\nconst requiredVars = [\n  'DB_BACKUP_TARGETS_JSON',\n  'DB_BACKUP_LOCAL_DIR',\n  'DB_BACKUP_DRIVE_REMOTE',\n  'DB_BACKUP_DRIVE_FOLDER',\n];\n\nconst missingVars = requiredVars.filter((key) => !String(env[key] || '').trim());\nif (missingVars.length > 0) {\n  throw new Error(`Variaveis obrigatorias ausentes: ${missingVars.join(', ')}`);\n}\n\nlet targets;\ntry {\n  targets = JSON.parse(env.DB_BACKUP_TARGETS_JSON);\n} catch (error) {\n  throw new Error(`DB_BACKUP_TARGETS_JSON invalido: ${error.message}`);\n}\n\nif (!Array.isArray(targets) || targets.length === 0) {\n  throw new Error('DB_BACKUP_TARGETS_JSON deve conter ao menos um banco');\n}\n\nconst enabledTargets = targets.filter((target) => target && target.enabled !== false);\nif (enabledTargets.length === 0) {\n  throw new Error('Nenhum banco habilitado em DB_BACKUP_TARGETS_JSON');\n}\n\nconst toPositiveInt = (value, fallback) => {\n  const parsed = Number.parseInt(String(value ?? ''), 10);\n  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;\n};\n\nconst config = {\n  timezone: String(env.DB_BACKUP_TIMEZONE || env.GENERIC_TIMEZONE || 'America/Sao_Paulo'),\n  local_dir: String(env.DB_BACKUP_LOCAL_DIR),\n  drive_remote: String(env.DB_BACKUP_DRIVE_REMOTE),\n  drive_folder: String(env.DB_BACKUP_DRIVE_FOLDER),\n  local_retention_days: toPositiveInt(env.DB_BACKUP_LOCAL_RETENTION_DAYS, 7),\n  drive_retention_days: toPositiveInt(env.DB_BACKUP_DRIVE_RETENTION_DAYS, 30),\n  targets: enabledTargets,\n};\n\nconst configB64 = Buffer.from(JSON.stringify(config), 'utf8').toString('base64');\nconst command = `python3 - <<'PY'\nimport base64\nimport json\nimport os\nimport re\nimport shlex\nimport shutil\nimport subprocess\nfrom datetime import datetime, timezone\n\nCONFIG = json.loads(base64.b64decode('${configB64}').decode('utf-8'))\n\n\ndef sanitize_name(value):\n    safe = re.sub(r'[^A-Za-z0-9._-]+', '-', str(value or '').strip())\n    safe = safe.strip('.-')\n    return safe or 'database'\n\n\ndef run_command(command, env=None):\n    result = subprocess.run(\n        ['bash', '-lc', command],\n        capture_output=True,\n        text=True,\n        env=env,\n        check=False,\n    )\n    if result.returncode != 0:\n        raise RuntimeError((result.stderr or result.stdout or 'command failed').strip())\n    return result\n\n\ndef quote(value):\n    return shlex.quote(str(value))\n\n\ndef ensure_tool(tool_name):\n    if shutil.which(tool_name) is None:\n        raise RuntimeError(f'Ferramenta obrigatoria ausente no host remoto: {tool_name}')\n\n\nfor base_tool in ['bash', 'find', 'gzip', 'python3', 'rclone']:\n    ensure_tool(base_tool)\n\nsummary = {\n    'startedAt': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),\n    'timezone': CONFIG['timezone'],\n    'localRetentionDays': CONFIG['local_retention_days'],\n    'driveRetentionDays': CONFIG['drive_retention_days'],\n    'driveFolder': CONFIG['drive_folder'],\n    'driveRemote': CONFIG['drive_remote'],\n    'successCount': 0,\n    'failureCount': 0,\n    'backups': [],\n    'failures': [],\n}\n\nfor raw_target in CONFIG['targets']:\n    target = dict(raw_target)\n    name = sanitize_name(target.get('name'))\n    db_type = str(target.get('type') or '').strip().lower()\n    target_local_root = os.path.join(CONFIG['local_dir'], name)\n    target_remote_root = f\"{CONFIG['drive_remote']}:{CONFIG['drive_folder'].strip('/')}/{name}\"\n    execution_dt = datetime.now(timezone.utc)\n    date_path = execution_dt.strftime('%Y/%m/%d')\n    time_dir = execution_dt.strftime('%H%M%SZ')\n    timestamp = execution_dt.strftime('%Y%m%dT%H%M%SZ')\n    local_dir = os.path.join(target_local_root, *date_path.split('/'), time_dir)\n    remote_dir = f\"{target_remote_root}/{date_path}/{time_dir}\"\n\n    try:\n        if db_type not in {'postgres', 'mysql', 'mongodb'}:\n            raise RuntimeError(f\"Tipo de banco nao suportado: {db_type}\")\n\n        if db_type == 'postgres':\n            ensure_tool('pg_dump')\n            database = target.get('database')\n            username = target.get('username')\n            password = target.get('password', '')\n            host = target.get('host', '127.0.0.1')\n            port = int(target.get('port', 5432))\n            extra_args = str(target.get('extra_args') or '')\n            if not database or not username:\n                raise RuntimeError('Postgres exige database e username')\n            filename = f\"{name}_{timestamp}.dump\"\n            local_path = os.path.join(local_dir, filename)\n            env = os.environ.copy()\n            env['PGPASSWORD'] = str(password)\n            cmd = [\n                'pg_dump',\n                '--host', str(host),\n                '--port', str(port),\n                '--username', str(username),\n                '--dbname', str(database),\n                '--format=custom',\n                '--compress=9',\n                '--no-password',\n                '--file', local_path,\n            ]\n            if extra_args:\n                cmd.extend(shlex.split(extra_args))\n            backup_command = ' '.join(quote(part) for part in cmd)\n        elif db_type == 'mysql':\n            ensure_tool('mysqldump')\n            database = target.get('database')\n            username = target.get('username')\n            password = target.get('password', '')\n            host = target.get('host', '127.0.0.1')\n            port = int(target.get('port', 3306))\n            extra_args = str(target.get('extra_args') or '')\n            if not database or not username:\n                raise RuntimeError('MySQL exige database e username')\n            filename = f\"{name}_{timestamp}.sql.gz\"\n            local_path = os.path.join(local_dir, filename)\n            cmd = [\n                'mysqldump',\n                '--host', str(host),\n                '--port', str(port),\n                '--user', str(username),\n                '--single-transaction',\n                '--quick',\n                '--routines',\n                '--events',\n                '--triggers',\n                str(database),\n            ]\n            if extra_args:\n                cmd.extend(shlex.split(extra_args))\n            backup_command = f\"MYSQL_PWD={quote(password)} {' '.join(quote(part) for part in cmd)} | gzip -9 > {quote(local_path)}\"\n        else:\n            ensure_tool('mongodump')\n            database = target.get('database')\n            extra_args = str(target.get('extra_args') or '')\n            filename = f\"{name}_{timestamp}.archive.gz\"\n            local_path = os.path.join(local_dir, filename)\n            connection_uri = str(target.get('connection_uri') or '').strip()\n            auth_database = str(target.get('auth_database') or 'admin')\n            if connection_uri:\n                cmd = ['mongodump', f'--uri={connection_uri}']\n                if database:\n                    cmd.extend(['--db', str(database)])\n            else:\n                username = target.get('username')\n                password = target.get('password', '')\n                host = target.get('host', '127.0.0.1')\n                port = int(target.get('port', 27017))\n                if not database or not username:\n                    raise RuntimeError('MongoDB exige connection_uri ou database e username')\n                cmd = [\n                    'mongodump',\n                    '--host', str(host),\n                    '--port', str(port),\n                    '--username', str(username),\n                    '--password', str(password),\n                    '--authenticationDatabase', auth_database,\n                    '--db', str(database),\n                ]\n            if extra_args:\n                cmd.extend(shlex.split(extra_args))\n            cmd.append('--archive')\n            backup_command = f\"{' '.join(quote(part) for part in cmd)} | gzip -9 > {quote(local_path)}\"\n\n        os.makedirs(local_dir, exist_ok=True)\n        run_command(f\"mkdir -p {quote(local_dir)}\")\n        run_command(f\"rclone mkdir {quote(remote_dir)}\")\n        run_command(backup_command, env=env if db_type == 'postgres' else None)\n        run_command(f\"rclone copyto {quote(local_path)} {quote(remote_dir + '/' + filename)}\")\n        run_command(f\"find {quote(target_local_root)} -type f -mtime +{int(CONFIG['local_retention_days'])} -delete\")\n        run_command(f\"find {quote(target_local_root)} -depth -type d -empty -delete\")\n        run_command(f\"rclone delete {quote(target_remote_root)} --min-age {int(CONFIG['drive_retention_days'])}d\")\n        run_command(f\"rclone rmdirs {quote(target_remote_root)}\")\n\n        file_size_bytes = os.path.getsize(local_path)\n        summary['successCount'] += 1\n        summary['backups'].append({\n            'name': name,\n            'type': db_type,\n            'filename': filename,\n            'localPath': local_path,\n            'remotePath': f\"{remote_dir}/{filename}\",\n            'sizeBytes': file_size_bytes,\n            'finishedAt': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),\n        })\n    except Exception as exc:\n        summary['failureCount'] += 1\n        summary['failures'].append({\n            'name': name,\n            'type': db_type,\n            'error': str(exc),\n            'failedAt': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),\n        })\n\nsummary['finishedAt'] = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')\nprint(json.dumps(summary, ensure_ascii=True))\nPY`;\n\nreturn [{\n  json: {\n    command,\n    configSummary: {\n      timezone: config.timezone,\n      localRetentionDays: config.local_retention_days,\n      driveRetentionDays: config.drive_retention_days,\n      driveFolder: config.drive_folder,\n      targetNames: enabledTargets.map((target) => String(target.name || 'database')),\n      targetCount: enabledTargets.length,\n    },\n  },\n}];"
+      "Build Backup Command": {
+        "main": [
+          [
+            {
+              "node": "Run Remote Backups",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
       },
-      "name": "Build Backup Command",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        -240,
-        304
-      ],
-      "id": "d4145db5-c6ed-4a68-8026-521fb593a1ec"
-    },
-    {
-      "parameters": {
-        "authentication": "privateKey",
-        "command": "={{ $json.command }}"
-      },
-      "name": "Run Remote Backups",
-      "type": "n8n-nodes-base.ssh",
-      "typeVersion": 1,
-      "position": [
-        48,
-        304
-      ],
-      "id": "c98c152e-9556-4d58-add0-45d290cc7e54",
-      "credentials": {
-        "sshPrivateKey": {
-          "id": "2urEEfcr9NaOCNJN",
-          "name": "SSH Password account"
-        }
+      "Run Remote Backups": {
+        "main": [
+          [
+            {
+              "node": "Parse Backup Summary",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
       }
     },
-    {
-      "parameters": {
-        "jsCode": "const stdout = String(items[0]?.json?.stdout ?? items[0]?.json?.data ?? '').trim();\nconst stderr = String(items[0]?.json?.stderr ?? items[0]?.json?.error ?? '').trim();\nconst exitCode = items[0]?.json?.exitCode ?? items[0]?.json?.code ?? null;\n\nif (!stdout) {\n  const diagnostics = [\n    exitCode !== null ? `exitCode=${exitCode}` : '',\n    stderr ? `stderr=${stderr}` : '',\n  ].filter(Boolean).join(' | ');\n  throw new Error(`O host remoto nao retornou resumo do backup${diagnostics ? `: ${diagnostics}` : ''}`);\n}\n\nlet summary;\ntry {\n  summary = JSON.parse(stdout);\n} catch (error) {\n  const preview = stdout.slice(0, 500);\n  throw new Error(`Resumo de backup invalido: ${error.message}. Saida recebida: ${preview}`);\n}\n\nsummary.hadFailures = Number(summary.failureCount || 0) > 0;\nsummary.message = [\n  `Backups executados: ${summary.successCount || 0}`,\n  `Falhas: ${summary.failureCount || 0}`,\n  `Retencao local: ${summary.localRetentionDays || 'n/d'} dia(s)`,\n  `Retencao Drive: ${summary.driveRetentionDays || 'n/d'} dia(s)`,\n].join(' | ');\n\nif (summary.hadFailures) {\n  const failedTargets = Array.isArray(summary.failures)\n    ? summary.failures.map((item) => `${item.name}: ${item.error}`).join('; ')\n    : 'falhas nao detalhadas';\n  throw new Error(`Backup concluido com falhas. ${failedTargets}`);\n}\n\nreturn [{ json: summary }];"
-      },
-      "name": "Parse Backup Summary",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        336,
-        304
-      ],
-      "id": "aa1693cc-5d82-4725-9c86-56d466ccbd2d"
-    }
-  ],
-  "connections": {
-    "Daily Backup Schedule": {
-      "main": [
-        [
-          {
-            "node": "Build Backup Command",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+    "settings": {
+      "executionOrder": "v1",
+      "binaryMode": "separate"
     },
-    "Build Backup Command": {
-      "main": [
-        [
-          {
-            "node": "Run Remote Backups",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+    "staticData": {
+      "node:Daily Backup Schedule": {
+        "recurrenceRules": []
+      }
     },
-    "Run Remote Backups": {
-      "main": [
-        [
-          {
-            "node": "Parse Backup Summary",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+    "meta": {
+      "templateCredsSetupCompleted": true
+    },
+    "pinData": {},
+    "versionId": "252310d6-ee9b-43ae-9079-d8b7b20b3617",
+    "activeVersionId": "c3b00240-71ec-493d-b039-884442c3d51c",
+    "versionCounter": 26,
+    "triggerCount": 1,
+    "tags": [],
+    "shared": [
+      {
+        "updatedAt": "2026-04-27T03:39:50.257Z",
+        "createdAt": "2026-04-27T03:39:50.257Z",
+        "role": "workflow:owner",
+        "workflowId": "dbBackupsGDrive240001",
+        "projectId": "PTPubzEf62cPswRq",
+        "project": {
+          "updatedAt": "2026-04-27T03:37:44.916Z",
+          "createdAt": "2026-04-27T03:33:20.870Z",
+          "id": "PTPubzEf62cPswRq",
+          "name": "Pedro Duarte <pedroaugustoaduarte@gmail.com>",
+          "type": "personal",
+          "icon": null,
+          "description": null,
+          "creatorId": "ae62cd26-0424-446d-bf3e-1e703e78fa8b"
+        }
+      }
+    ],
+    "versionMetadata": {
+      "name": null,
+      "description": null
     }
-  },
-  "settings": {
-    "executionOrder": "v1",
-    "binaryMode": "separate"
-  },
-  "staticData": {
-    "node:Daily Backup Schedule": {
-      "recurrenceRules": []
-    }
-  },
-  "meta": {
-    "templateCredsSetupCompleted": true
-  },
-  "pinData": {},
-  "versionId": "5e820d85-0e90-41c5-916a-315a92180d1f",
-  "tags": [],
-  "versionMetadata": {
-    "name": "Version 5e820d85",
-    "description": ""
   }
-}
+]

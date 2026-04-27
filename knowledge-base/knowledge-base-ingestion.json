@@ -1,8 +1,12 @@
 [
   {
+    "updatedAt": "2026-04-27T04:39:31.000Z",
+    "createdAt": "2026-04-27T03:35:39.794Z",
     "id": "gH8xKbIngest0001",
     "name": "Knowledge Base - Ingestion",
+    "description": null,
     "active": true,
+    "isArchived": false,
     "nodes": [
       {
         "parameters": {
@@ -132,7 +136,7 @@
         "onError": "continueRegularOutput",
         "credentials": {
           "telegramApi": {
-            "id": "tgCredVps2400001",
+            "id": "QYLI0frythKgQFV6",
             "name": "Telegram VPS"
           }
         }
@@ -204,7 +208,36 @@
       "executionOrder": "v1",
       "binaryMode": "separate"
     },
+    "staticData": null,
+    "meta": null,
     "pinData": {},
-    "versionId": "e95aa740-7a34-4f4e-b3ef-fdf9ce2ec001"
+    "versionId": "28ce8315-3a1f-403f-9ba3-43089fb813ca",
+    "activeVersionId": "28ce8315-3a1f-403f-9ba3-43089fb813ca",
+    "versionCounter": 23,
+    "triggerCount": 1,
+    "tags": [],
+    "shared": [
+      {
+        "updatedAt": "2026-04-27T03:35:39.799Z",
+        "createdAt": "2026-04-27T03:35:39.799Z",
+        "role": "workflow:owner",
+        "workflowId": "gH8xKbIngest0001",
+        "projectId": "PTPubzEf62cPswRq",
+        "project": {
+          "updatedAt": "2026-04-27T03:37:44.916Z",
+          "createdAt": "2026-04-27T03:33:20.870Z",
+          "id": "PTPubzEf62cPswRq",
+          "name": "Pedro Duarte <pedroaugustoaduarte@gmail.com>",
+          "type": "personal",
+          "icon": null,
+          "description": null,
+          "creatorId": "ae62cd26-0424-446d-bf3e-1e703e78fa8b"
+        }
+      }
+    ],
+    "versionMetadata": {
+      "name": null,
+      "description": null
+    }
   }
 ]

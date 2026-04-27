@@ -1,9 +1,11 @@
 [
   {
+    "updatedAt": "2026-04-27T04:39:54.000Z",
+    "createdAt": "2026-04-27T03:40:04.090Z",
     "id": "feconectVpsSummary240001",
     "name": "FeConect - VPS Daily Summary Telegram",
     "description": "Resumo diario da VPS com status e metricas essenciais enviado ao Telegram.",
-    "active": false,
+    "active": true,
     "isArchived": false,
     "nodes": [
       {
@@ -23,7 +25,8 @@
         "position": [
           0,
           0
-        ]
+        ],
+        "id": "95fc5ca7-a10a-4bb1-8c09-ded1d2c0ab83"
       },
       {
         "parameters": {
@@ -42,7 +45,8 @@
             "id": "2urEEfcr9NaOCNJN",
             "name": "SSH Password account"
           }
-        }
+        },
+        "id": "e99a2505-30f1-444b-a36f-ae7811795b1e"
       },
       {
         "parameters": {
@@ -54,7 +58,8 @@
         "position": [
           560,
           0
-        ]
+        ],
+        "id": "9df062a3-cc16-411e-85aa-b5ade71bbb5a"
       },
       {
         "parameters": {
@@ -71,10 +76,11 @@
         ],
         "credentials": {
           "telegramApi": {
-            "id": "tgCredVps2400001",
+            "id": "QYLI0frythKgQFV6",
             "name": "Telegram VPS"
           }
-        }
+        },
+        "id": "3cba047f-b97c-4cd6-8761-a48a7eab4a15"
       }
     ],
     "connections": {
@@ -115,6 +121,37 @@
     "settings": {
       "executionOrder": "v1",
       "binaryMode": "separate"
+    },
+    "staticData": null,
+    "meta": null,
+    "pinData": {},
+    "versionId": "e2c51781-74e3-462e-a3c0-5a8bcfe11617",
+    "activeVersionId": "e2c51781-74e3-462e-a3c0-5a8bcfe11617",
+    "versionCounter": 26,
+    "triggerCount": 1,
+    "tags": [],
+    "shared": [
+      {
+        "updatedAt": "2026-04-27T03:40:04.095Z",
+        "createdAt": "2026-04-27T03:40:04.095Z",
+        "role": "workflow:owner",
+        "workflowId": "feconectVpsSummary240001",
+        "projectId": "PTPubzEf62cPswRq",
+        "project": {
+          "updatedAt": "2026-04-27T03:37:44.916Z",
+          "createdAt": "2026-04-27T03:33:20.870Z",
+          "id": "PTPubzEf62cPswRq",
+          "name": "Pedro Duarte <pedroaugustoaduarte@gmail.com>",
+          "type": "personal",
+          "icon": null,
+          "description": null,
+          "creatorId": "ae62cd26-0424-446d-bf3e-1e703e78fa8b"
+        }
+      }
+    ],
+    "versionMetadata": {
+      "name": null,
+      "description": null
     }
   }
 ]

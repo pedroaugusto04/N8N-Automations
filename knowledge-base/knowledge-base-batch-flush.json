@@ -1,8 +1,12 @@
 [
   {
+    "updatedAt": "2026-04-27T04:39:37.000Z",
+    "createdAt": "2026-04-27T03:35:46.806Z",
     "id": "kbBatchFlush240001",
     "name": "Knowledge Base - Batch Flush",
+    "description": null,
     "active": true,
+    "isArchived": false,
     "nodes": [
       {
         "parameters": {
@@ -102,7 +106,7 @@
         ],
         "credentials": {
           "telegramApi": {
-            "id": "tgCredVps2400001",
+            "id": "QYLI0frythKgQFV6",
             "name": "Telegram VPS"
           }
         }
@@ -157,6 +161,40 @@
     "settings": {
       "executionOrder": "v1"
     },
-    "pinData": {}
+    "staticData": {
+      "node:Every 5 Minutes": {
+        "recurrenceRules": []
+      }
+    },
+    "meta": null,
+    "pinData": {},
+    "versionId": "6cd1a2c9-1920-48a0-b3e3-d0306351340c",
+    "activeVersionId": "6cd1a2c9-1920-48a0-b3e3-d0306351340c",
+    "versionCounter": 24,
+    "triggerCount": 1,
+    "tags": [],
+    "shared": [
+      {
+        "updatedAt": "2026-04-27T03:35:46.811Z",
+        "createdAt": "2026-04-27T03:35:46.811Z",
+        "role": "workflow:owner",
+        "workflowId": "kbBatchFlush240001",
+        "projectId": "PTPubzEf62cPswRq",
+        "project": {
+          "updatedAt": "2026-04-27T03:37:44.916Z",
+          "createdAt": "2026-04-27T03:33:20.870Z",
+          "id": "PTPubzEf62cPswRq",
+          "name": "Pedro Duarte <pedroaugustoaduarte@gmail.com>",
+          "type": "personal",
+          "icon": null,
+          "description": null,
+          "creatorId": "ae62cd26-0424-446d-bf3e-1e703e78fa8b"
+        }
+      }
+    ],
+    "versionMetadata": {
+      "name": null,
+      "description": null
+    }
   }
 ]

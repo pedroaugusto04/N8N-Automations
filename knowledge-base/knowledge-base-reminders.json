@@ -1,8 +1,12 @@
 [
   {
+    "updatedAt": "2026-04-27T04:39:34.000Z",
+    "createdAt": "2026-04-27T03:35:43.320Z",
     "id": "kbReminders240001",
     "name": "Knowledge Base - Reminders",
+    "description": null,
     "active": true,
+    "isArchived": false,
     "nodes": [
       {
         "parameters": {
@@ -339,7 +343,7 @@
         ],
         "credentials": {
           "telegramApi": {
-            "id": "tgCredVps2400001",
+            "id": "QYLI0frythKgQFV6",
             "name": "Telegram VPS"
           }
         }
@@ -362,7 +366,7 @@
         ],
         "credentials": {
           "telegramApi": {
-            "id": "tgCredVps2400001",
+            "id": "QYLI0frythKgQFV6",
             "name": "Telegram VPS"
           }
         }
@@ -504,6 +508,43 @@
     "settings": {
       "executionOrder": "v1"
     },
-    "pinData": {}
+    "staticData": {
+      "node:Every Day 09:00": {
+        "recurrenceRules": []
+      },
+      "node:Every Minute": {
+        "recurrenceRules": []
+      }
+    },
+    "meta": null,
+    "pinData": {},
+    "versionId": "2818f56b-e3b1-4b1c-89ac-779a8498c925",
+    "activeVersionId": "2818f56b-e3b1-4b1c-89ac-779a8498c925",
+    "versionCounter": 24,
+    "triggerCount": 2,
+    "tags": [],
+    "shared": [
+      {
+        "updatedAt": "2026-04-27T03:35:43.325Z",
+        "createdAt": "2026-04-27T03:35:43.325Z",
+        "role": "workflow:owner",
+        "workflowId": "kbReminders240001",
+        "projectId": "PTPubzEf62cPswRq",
+        "project": {
+          "updatedAt": "2026-04-27T03:37:44.916Z",
+          "createdAt": "2026-04-27T03:33:20.870Z",
+          "id": "PTPubzEf62cPswRq",
+          "name": "Pedro Duarte <pedroaugustoaduarte@gmail.com>",
+          "type": "personal",
+          "icon": null,
+          "description": null,
+          "creatorId": "ae62cd26-0424-446d-bf3e-1e703e78fa8b"
+        }
+      }
+    ],
+    "versionMetadata": {
+      "name": null,
+      "description": null
+    }
   }
 ]

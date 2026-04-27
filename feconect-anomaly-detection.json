@@ -1,9 +1,11 @@
 [
   {
+    "updatedAt": "2026-04-27T04:42:19.560Z",
+    "createdAt": "2026-04-27T03:40:07.511Z",
     "id": "feconectAnomaly240001",
     "name": "FeConect - Anomaly Detection Telegram",
     "description": null,
-    "active": false,
+    "active": true,
     "isArchived": false,
     "nodes": [
       {
@@ -23,7 +25,8 @@
         "position": [
           -1056,
           80
-        ]
+        ],
+        "id": "e2abe6eb-7c92-485f-8781-9efa2fa5c559"
       },
       {
         "parameters": {
@@ -37,7 +40,8 @@
         "position": [
           -768,
           80
-        ]
+        ],
+        "id": "69bfe2af-6b36-4503-9e3e-59dcaa2f94f7"
       },
       {
         "parameters": {
@@ -49,7 +53,8 @@
         "position": [
           -480,
           80
-        ]
+        ],
+        "id": "d4b705c8-4f96-4b2a-942b-322f33d68c65"
       },
       {
         "parameters": {
@@ -59,17 +64,25 @@
                 "value1": "={{ $json.hasAlerts }}",
                 "operation": "isTrue"
               }
-            ]
+            ],
+            "combinator": "and",
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 1
+            }
           },
           "options": {}
         },
-        "name": "Has Anomaly?", 
+        "name": "Has Anomaly?",
         "type": "n8n-nodes-base.if",
         "typeVersion": 2.2,
         "position": [
           -240,
           80
-        ]
+        ],
+        "id": "3854a9a7-ae76-405e-9f07-786cb427189e"
       },
       {
         "parameters": {
@@ -86,10 +99,12 @@
           0,
           0
         ],
+        "id": "3a961acd-e23d-4fa2-a6d2-b6fe0a62e07b",
+        "webhookId": "84bc78db-84b0-476f-89dc-5f8bdd5e5564",
         "credentials": {
           "telegramApi": {
-            "id": "tgCredFecon24001",
-            "name": "Telegram FeConect"
+            "id": "FWUwWMyPu0F0MTjw",
+            "name": "Telegram Feconect"
           }
         }
       }
@@ -143,6 +158,43 @@
     "settings": {
       "executionOrder": "v1",
       "binaryMode": "separate"
+    },
+    "staticData": {
+      "node:Every 10 Minutes": {
+        "recurrenceRules": []
+      }
+    },
+    "meta": {
+      "templateCredsSetupCompleted": true
+    },
+    "pinData": {},
+    "versionId": "c1fe4cec-e220-4ba6-8472-fcfec1e5909a",
+    "activeVersionId": "12a3e5e4-4b6f-43bd-9090-fbd9e09fa34c",
+    "versionCounter": 28,
+    "triggerCount": 1,
+    "tags": [],
+    "shared": [
+      {
+        "updatedAt": "2026-04-27T03:40:07.516Z",
+        "createdAt": "2026-04-27T03:40:07.516Z",
+        "role": "workflow:owner",
+        "workflowId": "feconectAnomaly240001",
+        "projectId": "PTPubzEf62cPswRq",
+        "project": {
+          "updatedAt": "2026-04-27T03:37:44.916Z",
+          "createdAt": "2026-04-27T03:33:20.870Z",
+          "id": "PTPubzEf62cPswRq",
+          "name": "Pedro Duarte <pedroaugustoaduarte@gmail.com>",
+          "type": "personal",
+          "icon": null,
+          "description": null,
+          "creatorId": "ae62cd26-0424-446d-bf3e-1e703e78fa8b"
+        }
+      }
+    ],
+    "versionMetadata": {
+      "name": null,
+      "description": null
     }
   }
 ]

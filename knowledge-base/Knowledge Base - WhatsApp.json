@@ -1,6 +1,12 @@
 [
   {
+    "updatedAt": "2026-04-27T04:40:07.000Z",
+    "createdAt": "2026-04-27T03:40:25.070Z",
+    "id": "kbWhatsApp240001",
     "name": "Knowledge Base - WhatsApp",
+    "description": null,
+    "active": true,
+    "isArchived": false,
     "nodes": [
       {
         "parameters": {
@@ -396,7 +402,6 @@
         ]
       }
     ],
-    "pinData": {},
     "connections": {
       "WhatsApp Webhook": {
         "main": [
@@ -612,16 +617,42 @@
         ]
       }
     },
-    "active": true,
     "settings": {
       "executionOrder": "v1",
       "binaryMode": "separate"
     },
-    "versionId": "93907080-8672-419b-a09a-0493c58f9681",
+    "staticData": null,
     "meta": {
       "instanceId": "640e2b64548de126c4bfd6524a25adc96a52abe563e283d5677cde8c544e242f"
     },
-    "id": "kbWhatsApp240001",
-    "tags": []
+    "pinData": {},
+    "versionId": "38576353-a254-4ba3-abd1-7bbfdb87d164",
+    "activeVersionId": "38576353-a254-4ba3-abd1-7bbfdb87d164",
+    "versionCounter": 26,
+    "triggerCount": 1,
+    "tags": [],
+    "shared": [
+      {
+        "updatedAt": "2026-04-27T03:40:25.076Z",
+        "createdAt": "2026-04-27T03:40:25.076Z",
+        "role": "workflow:owner",
+        "workflowId": "kbWhatsApp240001",
+        "projectId": "PTPubzEf62cPswRq",
+        "project": {
+          "updatedAt": "2026-04-27T03:37:44.916Z",
+          "createdAt": "2026-04-27T03:33:20.870Z",
+          "id": "PTPubzEf62cPswRq",
+          "name": "Pedro Duarte <pedroaugustoaduarte@gmail.com>",
+          "type": "personal",
+          "icon": null,
+          "description": null,
+          "creatorId": "ae62cd26-0424-446d-bf3e-1e703e78fa8b"
+        }
+      }
+    ],
+    "versionMetadata": {
+      "name": null,
+      "description": null
+    }
   }
 ]

@@ -1,14 +1,16 @@
 [
   {
+    "updatedAt": "2026-04-27T04:43:27.356Z",
+    "createdAt": "2026-04-27T03:39:53.666Z",
     "id": "ctrHealthTg240001",
     "name": "Docker Container Health Alerts Telegram",
     "description": "Monitora todos os containers Docker via SSH a cada 10 minutos e envia alerta no Telegram quando algum container estiver inativo, unhealthy ou quando o ping HTTP configurado retornar status diferente de 200. O cooldown por servico e configuravel via env CONTAINER_ALERT_COOLDOWN_HOURS.",
-    "active": false,
+    "active": true,
     "isArchived": false,
     "nodes": [
       {
         "parameters": {
-          "rule": { 
+          "rule": {
             "interval": [
               {
                 "field": "cronExpression",
@@ -21,9 +23,10 @@
         "type": "n8n-nodes-base.scheduleTrigger",
         "typeVersion": 1.2,
         "position": [
-          -760,
-          280
-        ]
+          -768,
+          288
+        ],
+        "id": "e6f16875-66d5-47d3-a07e-6b8c51f73e1d"
       },
       {
         "parameters": {
@@ -35,12 +38,13 @@
         "typeVersion": 1,
         "position": [
           -480,
-          280
+          288
         ],
+        "id": "9823db1f-46ea-4695-8b8c-baea4543ad95",
         "credentials": {
           "sshPrivateKey": {
-            "id": "2urEEfcr9NaOCNJN",
-            "name": "SSH Password account"
+            "id": "qcbkFBgMRQChM8sI",
+            "name": "SSH Private Key account"
           }
         }
       },
@@ -53,8 +57,9 @@
         "typeVersion": 2,
         "position": [
           -160,
-          280
-        ]
+          288
+        ],
+        "id": "30b7e3a4-7f52-418b-9c8b-53ca8f6480d2"
       },
       {
         "parameters": {
@@ -64,7 +69,14 @@
                 "value1": "={{ $json.hasAlerts === true }}",
                 "operation": "isTrue"
               }
-            ]
+            ],
+            "combinator": "and",
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 1
+            }
           },
           "options": {}
         },
@@ -73,8 +85,9 @@
         "typeVersion": 2.2,
         "position": [
           96,
-          280
-        ]
+          288
+        ],
+        "id": "0da3fc39-378d-46d4-afdc-5566cf9b60df"
       },
       {
         "parameters": {
@@ -89,11 +102,13 @@
         "typeVersion": 1.2,
         "position": [
           352,
-          200
+          208
         ],
+        "id": "68ae2e93-919a-4e02-afff-0a6ff816ee9b",
+        "webhookId": "282df0c7-b820-4610-bfac-942e00213149",
         "credentials": {
           "telegramApi": {
-            "id": "tgCredVps2400001",
+            "id": "QYLI0frythKgQFV6",
             "name": "Telegram VPS"
           }
         }
@@ -148,6 +163,41 @@
     "settings": {
       "executionOrder": "v1",
       "binaryMode": "separate"
+    },
+    "staticData": {
+      "node:Every 10 Minutes": {
+        "recurrenceRules": []
+      }
+    },
+    "meta": null,
+    "pinData": {},
+    "versionId": "9f51a07d-d0e0-409c-b973-d5bfd37dafe7",
+    "activeVersionId": "406fa48b-961f-48d2-a8a9-813fda6511d1",
+    "versionCounter": 25,
+    "triggerCount": 1,
+    "tags": [],
+    "shared": [
+      {
+        "updatedAt": "2026-04-27T03:39:53.671Z",
+        "createdAt": "2026-04-27T03:39:53.671Z",
+        "role": "workflow:owner",
+        "workflowId": "ctrHealthTg240001",
+        "projectId": "PTPubzEf62cPswRq",
+        "project": {
+          "updatedAt": "2026-04-27T03:37:44.916Z",
+          "createdAt": "2026-04-27T03:33:20.870Z",
+          "id": "PTPubzEf62cPswRq",
+          "name": "Pedro Duarte <pedroaugustoaduarte@gmail.com>",
+          "type": "personal",
+          "icon": null,
+          "description": null,
+          "creatorId": "ae62cd26-0424-446d-bf3e-1e703e78fa8b"
+        }
+      }
+    ],
+    "versionMetadata": {
+      "name": null,
+      "description": null
     }
   }
 ]

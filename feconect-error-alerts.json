@@ -1,9 +1,11 @@
 [
   {
+    "updatedAt": "2026-04-27T04:41:54.065Z",
+    "createdAt": "2026-04-27T03:40:14.560Z",
     "id": "feconectErrorAlerts240001",
     "name": "FeConect - Error Alerts Telegram",
     "description": null,
-    "active": false,
+    "active": true,
     "isArchived": false,
     "nodes": [
       {
@@ -23,7 +25,8 @@
         "position": [
           -800,
           336
-        ]
+        ],
+        "id": "6121fd65-1e47-4681-b8ba-a9c29e7d71ac"
       },
       {
         "parameters": {
@@ -37,10 +40,11 @@
           -528,
           336
         ],
+        "id": "bf25ed08-8132-4b26-84a0-61df504d63e5",
         "credentials": {
           "sshPrivateKey": {
-            "id": "2urEEfcr9NaOCNJN",
-            "name": "SSH Password account"
+            "id": "qcbkFBgMRQChM8sI",
+            "name": "SSH Private Key account"
           }
         }
       },
@@ -54,7 +58,8 @@
         "position": [
           -240,
           336
-        ]
+        ],
+        "id": "b5dc2099-5d51-4e10-ba49-65d905d03960"
       },
       {
         "parameters": {
@@ -64,7 +69,14 @@
                 "value1": "={{ $json.hasAlerts === true }}",
                 "operation": "isTrue"
               }
-            ]
+            ],
+            "combinator": "and",
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 1
+            }
           },
           "options": {}
         },
@@ -74,7 +86,8 @@
         "position": [
           0,
           336
-        ]
+        ],
+        "id": "b88b3197-a201-4aa8-b877-9098c5144a2f"
       },
       {
         "parameters": {
@@ -91,10 +104,12 @@
           240,
           256
         ],
+        "id": "7d39cd6e-6db7-43d1-8a8c-f8820f9d4b1a",
+        "webhookId": "29e4947b-2b8f-4acd-a41c-3650715ada54",
         "credentials": {
           "telegramApi": {
-            "id": "tgCredFecon24001",
-            "name": "Telegram FeConect"
+            "id": "FWUwWMyPu0F0MTjw",
+            "name": "Telegram Feconect"
           }
         }
       }
@@ -148,6 +163,37 @@
     "settings": {
       "executionOrder": "v1",
       "binaryMode": "separate"
+    },
+    "staticData": null,
+    "meta": null,
+    "pinData": {},
+    "versionId": "3edf8aa9-08a7-4bf9-81cb-0abaaf9f999b",
+    "activeVersionId": "00388b32-d4b1-4a5d-8ed5-beb425fc23d0",
+    "versionCounter": 28,
+    "triggerCount": 1,
+    "tags": [],
+    "shared": [
+      {
+        "updatedAt": "2026-04-27T03:40:14.565Z",
+        "createdAt": "2026-04-27T03:40:14.565Z",
+        "role": "workflow:owner",
+        "workflowId": "feconectErrorAlerts240001",
+        "projectId": "PTPubzEf62cPswRq",
+        "project": {
+          "updatedAt": "2026-04-27T03:37:44.916Z",
+          "createdAt": "2026-04-27T03:33:20.870Z",
+          "id": "PTPubzEf62cPswRq",
+          "name": "Pedro Duarte <pedroaugustoaduarte@gmail.com>",
+          "type": "personal",
+          "icon": null,
+          "description": null,
+          "creatorId": "ae62cd26-0424-446d-bf3e-1e703e78fa8b"
+        }
+      }
+    ],
+    "versionMetadata": {
+      "name": null,
+      "description": null
     }
   }
 ]
