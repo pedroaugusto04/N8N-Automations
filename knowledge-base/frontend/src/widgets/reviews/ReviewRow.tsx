@@ -1,4 +1,5 @@
-import type { Dashboard, Review } from '../../shared/api/types';
+import type { Dashboard } from '../../shared/api/models/dashboard';
+import type { Review } from '../../shared/api/models/review';
 import { projectName } from '../../entities/format';
 import { Badge } from '../../shared/ui/primitives';
 

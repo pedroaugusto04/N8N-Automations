@@ -12,6 +12,7 @@ import {
   QueryKnowledgeUseCase,
   RunOnboardingUseCase,
 } from '../../../application/use-cases/dashboard.use-cases.js';
+import { BuildIntegrationsUseCase } from '../../../application/integrations.js';
 import type { MarkRemindersDto, QueryRequestDto } from '../dto/query.dto.js';
 
 @Controller('api')
@@ -68,6 +69,16 @@ export class DashboardController {
   @Post('query')
   queryPost(@Body() body: QueryRequestDto) {
     return this.queryKnowledge.execute(body);
+  }
+}
+
+@Controller('api')
+export class IntegrationsController {
+  constructor(private readonly buildIntegrations: BuildIntegrationsUseCase) {}
+
+  @Get('integrations')
+  integrations() {
+    return this.buildIntegrations.execute();
   }
 }
 

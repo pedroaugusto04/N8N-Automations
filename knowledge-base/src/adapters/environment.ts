@@ -34,6 +34,12 @@ export type RuntimeEnvironment = {
   queryWebhookPath: string;
   githubAppInstallUrl: string;
   whatsappPairingUrl: string;
+  telegramBotToken: string;
+  telegramChatId: string;
+  evolutionApiKey: string;
+  evolutionApiUrl: string;
+  evolutionApiPublicUrl: string;
+  evolutionInstanceName: string;
 };
 
 export function readEnvironment(env = process.env): RuntimeEnvironment {
@@ -72,5 +78,11 @@ export function readEnvironment(env = process.env): RuntimeEnvironment {
     queryWebhookPath: String(env.KB_QUERY_WEBHOOK_PATH || '/n8n/webhook/kb-query').trim(),
     githubAppInstallUrl: String(env.KB_GITHUB_APP_INSTALL_URL || '').trim(),
     whatsappPairingUrl: String(env.KB_WPP_PAIRING_URL || '').trim(),
+    telegramBotToken: String(env.KB_TELEGRAM_BOT_TOKEN || '').trim(),
+    telegramChatId: String(env.KB_TELEGRAM_CHAT_ID || '').trim(),
+    evolutionApiKey: String(env.EVOLUTION_API_KEY || '').trim(),
+    evolutionApiUrl: String(env.EVOLUTION_API_URL || '').trim(),
+    evolutionApiPublicUrl: String(env.EVOLUTION_API_PUBLIC_URL || '').trim(),
+    evolutionInstanceName: String(env.EVOLUTION_INSTANCE_NAME || '').trim(),
   };
 }

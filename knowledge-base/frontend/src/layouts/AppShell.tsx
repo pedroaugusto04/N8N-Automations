@@ -6,6 +6,7 @@ import type { PageContext } from '../app/page-context';
 import { navItems, routes, type View } from '../app/routing/routes';
 import { fetchDashboard } from '../shared/api/client';
 import { HomePage } from '../pages/home/HomePage';
+import { IntegrationsPage } from '../pages/integrations/IntegrationsPage';
 import { ProjectsPage } from '../pages/projects/ProjectsPage';
 import { RemindersPage } from '../pages/reminders/RemindersPage';
 import { ReviewsPage } from '../pages/reviews/ReviewsPage';
@@ -19,6 +20,7 @@ function activeView(pathname: string): View {
   if (pathname.startsWith('/reviews')) return 'reviews';
   if (pathname.startsWith('/search')) return 'search';
   if (pathname.startsWith('/reminders')) return 'reminders';
+  if (pathname.startsWith('/settings/integrations')) return 'integrations';
   return 'home';
 }
 
@@ -134,6 +136,7 @@ export function AppShell() {
             <Route path="/reviews/:reviewId" element={<ReviewsPage {...pageContext} />} />
             <Route path="/search" element={<SearchPage {...pageContext} />} />
             <Route path="/reminders" element={<RemindersPage {...pageContext} />} />
+            <Route path="/settings/integrations" element={<IntegrationsPage />} />
             <Route path="*" element={<HomePage {...pageContext} />} />
           </Routes>
         </section>

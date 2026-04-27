@@ -161,6 +161,17 @@ Todos os segredos relevantes ficam em `.env` na VPS e nunca no GitHub:
 
 Os workflows do n8n devem usar apenas `{{$env.*}}` para segredos.
 
+### Página de integrações
+
+O frontend expõe `/settings/integrations` como um painel read-only de status e guia de setup do workspace atual. A página mostra GitHub App, Webhooks, WhatsApp, Telegram, AI e Vault Git com:
+
+- status `connected`, `partial` ou `missing`
+- variáveis configuradas e ausentes apenas por nome
+- URLs úteis para webhook, instalação do GitHub App e pairing do WhatsApp
+- checklist e avisos operacionais
+
+O endpoint usado é `GET /api/integrations`, que responde `{ ok: true, workspaceSlug, integrations }`. Ele nunca retorna valores de secrets, tokens ou API keys; segredos continuam exclusivamente em `.env`/infra e devem ser alterados fora da UI.
+
 ## CLIs principais
 
 - `dist/cli/ingest.js`
@@ -185,10 +196,23 @@ npm --prefix knowledge-base run dev:api
 npm --prefix knowledge-base run dev:frontend
 ```
 
+Portas locais padrao:
+
+- API: `http://127.0.0.1:4310`
+- Frontend: `http://127.0.0.1:4311`
+
+Para sobrescrever sem editar codigo:
+
+```bash
+KB_API_PORT=4320 KB_FRONTEND_PORT=4321 npm --prefix knowledge-base run dev:frontend
+KB_API_PORT=4320 npm --prefix knowledge-base run dev:api
+```
+
 Endpoints HTTP principais:
 
 - `GET /api/health`
 - `GET /api/dashboard`
+- `GET /api/integrations`
 - `GET /api/notes/:id`
 - `GET|POST /api/query`
 - `POST /api/ingest`

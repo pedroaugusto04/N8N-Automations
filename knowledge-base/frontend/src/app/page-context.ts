@@ -1,4 +1,4 @@
-import type { Dashboard } from '../shared/api/types';
+import type { Dashboard } from '../shared/api/models/dashboard';
 
 export type PageContext = {
   dashboard: Dashboard;

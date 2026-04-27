@@ -11,15 +11,17 @@ import {
   QueryKnowledgeUseCase,
   RunOnboardingUseCase,
 } from './application/use-cases/dashboard.use-cases.js';
+import { BuildIntegrationsUseCase } from './application/integrations.js';
 import { ProjectRepository, VaultNoteRepository, WorkspaceRepository } from './application/ports/repositories.js';
 import { FilesystemProjectRepository, FilesystemWorkspaceRepository } from './infrastructure/repositories/filesystem-project.repository.js';
 import { FilesystemVaultNoteRepository } from './infrastructure/repositories/filesystem-vault-note.repository.js';
-import { DashboardController, HealthController, OperationsController, WebhookController } from './interfaces/http/controllers/knowledge.controllers.js';
+import { DashboardController, HealthController, IntegrationsController, OperationsController, WebhookController } from './interfaces/http/controllers/knowledge.controllers.js';
 
 @Module({
-  controllers: [HealthController, DashboardController, OperationsController, WebhookController],
+  controllers: [HealthController, DashboardController, IntegrationsController, OperationsController, WebhookController],
   providers: [
     BuildDashboardUseCase,
+    BuildIntegrationsUseCase,
     GetNoteDetailUseCase,
     QueryKnowledgeUseCase,
     IngestEntryUseCase,

@@ -4,7 +4,7 @@ Frontend React + Vite para navegar a knowledge-base como um vault tecnico.
 
 Scripts principais:
 
-- `npm run dev:frontend`: servidor Vite com proxy para `/api`
+- `npm run dev:frontend`: servidor Vite em `4311` com proxy para `/api` na API em `4310`
 - `npm run build:frontend`: build de producao em `dist/frontend`
 - `npm run test:frontend`: testes de componentes
 

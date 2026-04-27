@@ -6,7 +6,9 @@ import { Injectable } from '@nestjs/common';
 import { readEnvironment } from '../../adapters/environment.js';
 import { parseFrontmatter } from '../../domain/frontmatter.js';
 import { vaultFolders } from '../../domain/notes.js';
-import type { VaultNoteDetail, VaultNoteSummary, ReminderView, ReviewView, ReviewFindingView } from '../../application/ports/repositories.js';
+import type { ReminderView } from '../../application/models/reminder.models.js';
+import type { ReviewFindingView, ReviewView } from '../../application/models/review.models.js';
+import type { VaultNoteDetail, VaultNoteSummary } from '../../application/models/vault-note.models.js';
 import { VaultNoteRepository } from '../../application/ports/repositories.js';
 
 function encodeId(relativePath: string): string {

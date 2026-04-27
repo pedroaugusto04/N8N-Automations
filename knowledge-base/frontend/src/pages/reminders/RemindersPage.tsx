@@ -1,5 +1,5 @@
 import type { PageContext } from '../../app/page-context';
-import type { Reminder } from '../../shared/api/types';
+import type { Reminder } from '../../shared/api/models/reminder';
 import { PageHead, Panel } from '../../shared/ui/primitives';
 import { ReminderRow } from '../../widgets/reminders/ReminderRow';
 

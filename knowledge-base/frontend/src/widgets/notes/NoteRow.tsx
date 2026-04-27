@@ -1,4 +1,5 @@
-import type { Dashboard, NoteSummary } from '../../shared/api/types';
+import type { Dashboard } from '../../shared/api/models/dashboard';
+import type { NoteSummary } from '../../shared/api/models/note';
 import { projectName, typeIcon } from '../../entities/format';
 import { Badge } from '../../shared/ui/primitives';
 

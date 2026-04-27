@@ -20,7 +20,7 @@ async function bootstrap() {
   app.useStaticAssets(staticRoot);
   app.setBaseViewsDir(staticRoot);
 
-  const port = Number(process.env.KB_API_PORT || process.env.PORT || 3000);
+  const port = Number(process.env.KB_API_PORT || process.env.PORT || 4310);
   const host = process.env.KB_API_HOST || '127.0.0.1';
   await app.listen(port, host);
 }

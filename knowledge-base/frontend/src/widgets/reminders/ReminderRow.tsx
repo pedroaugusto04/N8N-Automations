@@ -1,4 +1,5 @@
-import type { Dashboard, Reminder } from '../../shared/api/types';
+import type { Dashboard } from '../../shared/api/models/dashboard';
+import type { Reminder } from '../../shared/api/models/reminder';
 import { projectName } from '../../entities/format';
 import { Badge } from '../../shared/ui/primitives';
 

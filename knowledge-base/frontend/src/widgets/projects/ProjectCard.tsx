@@ -1,4 +1,4 @@
-import type { Dashboard } from '../../shared/api/types';
+import type { Dashboard } from '../../shared/api/models/dashboard';
 import { Badge } from '../../shared/ui/primitives';
 
 export function ProjectCard({ project, onOpen }: { project: Dashboard['projects'][number]; onOpen: (slug: string) => void }) {

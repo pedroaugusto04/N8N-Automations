@@ -1,4 +1,4 @@
-import type { Dashboard } from '../shared/api/types';
+import type { Dashboard } from '../shared/api/models/dashboard';
 import { projectName } from '../entities/format';
 import type { View } from '../app/routing/routes';
 

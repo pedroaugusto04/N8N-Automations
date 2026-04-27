@@ -5,6 +5,8 @@ import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const apiPort = Number(process.env.KB_API_PORT || process.env.PORT || 4310);
+const frontendPort = Number(process.env.KB_FRONTEND_PORT || 4311);
 
 export default defineConfig({
   root: __dirname,
@@ -14,9 +16,9 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
-    port: 5173,
+    port: frontendPort,
     proxy: {
-      '/api': 'http://localhost:3000',
+      '/api': `http://localhost:${apiPort}`,
     },
   },
   test: {

@@ -1,4 +1,8 @@
-import type { Dashboard, NoteDetail, QueryResponse } from './types';
+import type { Dashboard, DashboardPayload } from './models/dashboard';
+import type { IntegrationsResponse } from './models/integration';
+import type { NoteDetail } from './models/note';
+import type { QueryResponse } from './models/query';
+import { normalizeDashboard } from './normalizers/dashboard';
 
 async function request<T>(path: string): Promise<T> {
   const response = await fetch(path, {
@@ -11,7 +15,11 @@ async function request<T>(path: string): Promise<T> {
 }
 
 export function fetchDashboard(): Promise<Dashboard> {
-  return request<Dashboard>('/api/dashboard');
+  return request<DashboardPayload>('/api/dashboard').then(normalizeDashboard);
+}
+
+export function fetchIntegrations(): Promise<IntegrationsResponse> {
+  return request<IntegrationsResponse>('/api/integrations');
 }
 
 export async function fetchNote(id: string): Promise<NoteDetail> {

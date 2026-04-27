@@ -1,4 +1,4 @@
-import type { Project } from '../shared/api/types';
+import type { Project } from '../shared/api/models/project';
 
 export function projectName(projects: Project[], slug: string) {
   return projects.find((project) => project.projectSlug === slug)?.displayName || slug;
