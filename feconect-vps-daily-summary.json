@@ -1,6 +1,6 @@
 [
   {
-    "updatedAt": "2026-04-27T04:39:54.000Z",
+    "updatedAt": "2026-04-27T05:35:07.000Z",
     "createdAt": "2026-04-27T03:40:04.090Z",
     "id": "feconectVpsSummary240001",
     "name": "FeConect - VPS Daily Summary Telegram",
@@ -42,8 +42,7 @@
         ],
         "credentials": {
           "sshPrivateKey": {
-            "id": "2urEEfcr9NaOCNJN",
-            "name": "SSH Password account"
+            "name": "SSH Private Key Account"
           }
         },
         "id": "e99a2505-30f1-444b-a36f-ae7811795b1e"
@@ -125,27 +124,27 @@
     "staticData": null,
     "meta": null,
     "pinData": {},
-    "versionId": "e2c51781-74e3-462e-a3c0-5a8bcfe11617",
-    "activeVersionId": "e2c51781-74e3-462e-a3c0-5a8bcfe11617",
-    "versionCounter": 26,
+    "versionId": "45d12edd-ec54-489a-b2f5-3c11f5465d37",
+    "activeVersionId": "45d12edd-ec54-489a-b2f5-3c11f5465d37",
+    "versionCounter": 28,
     "triggerCount": 1,
     "tags": [],
     "shared": [
       {
-        "updatedAt": "2026-04-27T03:40:04.095Z",
-        "createdAt": "2026-04-27T03:40:04.095Z",
+        "updatedAt": "2026-04-27T01:08:37.353Z",
+        "createdAt": "2026-04-27T01:08:37.353Z",
         "role": "workflow:owner",
         "workflowId": "feconectVpsSummary240001",
-        "projectId": "PTPubzEf62cPswRq",
+        "projectId": "3cyfZ9Z49rQj4oyf",
         "project": {
-          "updatedAt": "2026-04-27T03:37:44.916Z",
-          "createdAt": "2026-04-27T03:33:20.870Z",
-          "id": "PTPubzEf62cPswRq",
-          "name": "Pedro Duarte <pedroaugustoaduarte@gmail.com>",
+          "updatedAt": "2026-04-27T01:03:01.275Z",
+          "createdAt": "2026-04-27T01:03:01.275Z",
+          "id": "3cyfZ9Z49rQj4oyf",
+          "name": "Unnamed Project",
           "type": "personal",
           "icon": null,
           "description": null,
-          "creatorId": "ae62cd26-0424-446d-bf3e-1e703e78fa8b"
+          "creatorId": "b02fd094-3d4f-4c16-9b73-ee1ac26bbaf6"
         }
       }
     ],

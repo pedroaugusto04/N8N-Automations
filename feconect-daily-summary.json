@@ -1,6 +1,6 @@
 [
   {
-    "updatedAt": "2026-04-27T04:43:05.711Z",
+    "updatedAt": "2026-04-27T05:35:03.000Z",
     "createdAt": "2026-04-27T03:39:57.094Z",
     "id": "feconectDailySummary240001",
     "name": "FeConect - Daily Summary Telegram",
@@ -64,8 +64,7 @@
         "id": "24c40b84-3fac-476f-9956-7cdf14a248fc",
         "credentials": {
           "sshPrivateKey": {
-            "id": "2urEEfcr9NaOCNJN",
-            "name": "SSH Password account"
+            "name": "SSH Private Key Account"
           }
         }
       },
@@ -191,27 +190,27 @@
       "templateCredsSetupCompleted": true
     },
     "pinData": {},
-    "versionId": "f5c7f35a-6bec-47d3-967d-e974676b1a37",
-    "activeVersionId": "1598a316-c612-4f05-9f6e-812f0f63f7d1",
-    "versionCounter": 29,
+    "versionId": "8a17ef72-c1c7-4327-8c9b-a5c9f43e0e2c",
+    "activeVersionId": "8a17ef72-c1c7-4327-8c9b-a5c9f43e0e2c",
+    "versionCounter": 31,
     "triggerCount": 1,
     "tags": [],
     "shared": [
       {
-        "updatedAt": "2026-04-27T03:39:57.099Z",
-        "createdAt": "2026-04-27T03:39:57.099Z",
+        "updatedAt": "2026-04-27T01:08:32.890Z",
+        "createdAt": "2026-04-27T01:08:32.890Z",
         "role": "workflow:owner",
         "workflowId": "feconectDailySummary240001",
-        "projectId": "PTPubzEf62cPswRq",
+        "projectId": "3cyfZ9Z49rQj4oyf",
         "project": {
-          "updatedAt": "2026-04-27T03:37:44.916Z",
-          "createdAt": "2026-04-27T03:33:20.870Z",
-          "id": "PTPubzEf62cPswRq",
-          "name": "Pedro Duarte <pedroaugustoaduarte@gmail.com>",
+          "updatedAt": "2026-04-27T01:03:01.275Z",
+          "createdAt": "2026-04-27T01:03:01.275Z",
+          "id": "3cyfZ9Z49rQj4oyf",
+          "name": "Unnamed Project",
           "type": "personal",
           "icon": null,
           "description": null,
-          "creatorId": "ae62cd26-0424-446d-bf3e-1e703e78fa8b"
+          "creatorId": "b02fd094-3d4f-4c16-9b73-ee1ac26bbaf6"
         }
       }
     ],
