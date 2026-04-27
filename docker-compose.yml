@@ -11,7 +11,7 @@ services:
     env_file:
       - .env
     environment:
-      NODE_ENV: ${NODE_ENV:-production}
+      NODE_ENV: ${NODE_ENV:-production} 
       TZ: ${GENERIC_TIMEZONE:-America/Sao_Paulo}
       N8N_HOST: ${N8N_HOST}
       N8N_PROTOCOL: ${N8N_PROTOCOL:-https}
