@@ -1,6 +1,7 @@
 services:
   n8n:
     image: ${N8N_IMAGE:-n8nio/n8n:latest}
+    network_mode: host
     restart: ${N8N_RESTART_POLICY:-always}
     ports:
       - "${N8N_BIND_PORT:-5678}:${N8N_PORT:-5678}"
