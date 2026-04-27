@@ -7,16 +7,14 @@ COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.yml}"
 N8N_SERVICE="${N8N_SERVICE:-n8n}"
 REMOTE_IMPORT_DIR="/tmp/n8n-import-$(date +%s)"
 
-# 1. Encontrar Workflows (apenas na pasta knowledge-base)
+# 1. Encontrar Workflows (Raiz e pasta knowledge-base)
 WORKFLOW_FILES=()
-# Usamos find apenas na pasta de interesse para evitar erros de permissão em pastas de dados
-find_json=$(find knowledge-base/ -type f -name '*.json' 2>/dev/null || echo "")
-
-for f in $find_json; do
-  if jq -e 'if type=="array" then .[0] else . end | has("nodes")' "$f" >/dev/null 2>&1; then
-    WORKFLOW_FILES+=("$f")
+# Buscamos na raiz (maxdepth 1 para evitar pastas de dados) e na knowledge-base
+while IFS= read -r -d '' file; do
+  if jq -e 'if type=="array" then .[0] else . end | has("nodes")' "$file" >/dev/null 2>&1; then
+    WORKFLOW_FILES+=("$file")
   fi
-done
+done < <(find . -maxdepth 1 -name '*.json' -print0; find knowledge-base/ -type f -name '*.json' -print0)
 
 if [ ${#WORKFLOW_FILES[@]} -eq 0 ]; then
   echo "❌ No workflows found."
@@ -30,17 +28,23 @@ docker compose -f "$COMPOSE_FILE" up -d "$N8N_SERVICE"
 docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" mkdir -p "$REMOTE_IMPORT_DIR"
 
 # 3. Copiar e Importar
+TMP_DIR="$(mktemp -d)"
 for wf in "${WORKFLOW_FILES[@]}"; do
   fname=$(basename "$wf")
   echo "📤 Processing: $fname"
   
+  # Força active: true no JSON antes de subir (Garante ativação automática)
+  tmp_wf="$TMP_DIR/$fname"
+  jq 'if type=="array" then map(.active = true) else .active = true end' "$wf" > "$tmp_wf"
+  
   # Copia para o container
-  docker compose -f "$COMPOSE_FILE" cp "$wf" "$N8N_SERVICE:$REMOTE_IMPORT_DIR/$fname"
+  docker compose -f "$COMPOSE_FILE" cp "$tmp_wf" "$N8N_SERVICE:$REMOTE_IMPORT_DIR/$fname"
   
   # Importa (Força overwrite se o ID bater)
   echo "📥 Importing..."
-  docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" n8n import:workflow --input="$REMOTE_IMPORT_DIR/$fname" || echo "⚠️ Import failed for $fname, but continuing..."
+  docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" n8n import:workflow --input="$REMOTE_IMPORT_DIR/$fname" || echo "⚠️ Import failed for $fname"
 done
+rm -rf "$TMP_DIR"
 
 # 4. Ativação e Refresh Global via RESTART
 echo "🔄 Refreshing webhooks via global restart..."
