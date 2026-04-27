@@ -100,9 +100,9 @@ for workflow_file in "${WORKFLOW_FILES[@]}"; do
   target_file="$REMOTE_IMPORT_DIR/${clean_name//\//__}"
   tmp_file="$TMP_DIR/$(basename "$target_file")"
 
-  echo "Processing $clean_name"
-  # Força active=true e remove IDs manuais se desejar (aqui mantemos para sobrescrever)
-  jq 'if type=="array" then map(.active = true) else .active = true end' "$workflow_file" > "$tmp_file"
+  # Força active=false no import para evitar conflito de Webhook 'ghost'
+  # O n8n só registra o webhook corretamente se ele for ATIVADO após o import.
+  jq 'if type=="array" then map(.active = false) else .active = false end' "$workflow_file" > "$tmp_file"
   docker compose -f "$COMPOSE_FILE" cp "$tmp_file" "$N8N_SERVICE:$target_file"
 done
 
@@ -137,7 +137,7 @@ else
     docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" \
       n8n update:workflow --id="$id" --active=false 2>&1 || echo "  ⚠️  Failed to deactivate $id"
   done
-  sleep 3
+  sleep 5
 
   # Passo 2: Reativar todos (re-registra os listeners de webhook corretamente)
   echo "Re-activating all workflows (webhooks will be re-registered)..."
