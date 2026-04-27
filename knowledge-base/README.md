@@ -5,9 +5,12 @@
 ## Arquitetura
 
 - `src/domain`: regras puras, tipos, renderização de notas e mensagens
-- `src/application`: casos de uso (`ingest`, `github review`, `reminders`, `conversation`, `onboarding`, `query`)
-- `src/adapters`: AI, GitHub, git, IO e ambiente
+- `src/application`: casos de uso (`ingest`, `github review`, `reminders`, `conversation`, `onboarding`, `query`) e ports
+- `src/infrastructure`: repositories/adapters concretos para filesystem, manifests e vault
+- `src/interfaces/http`: controllers e DTOs NestJS
+- `src/adapters`: AI, GitHub, git, IO e ambiente legados/compartilhados
 - `src/cli`: entrypoints executáveis pelo n8n ou por outros runners
+- `frontend/`: aplicação React + Vite que consome a API real
 - `workflows/`: adapters opcionais do n8n
 - `tests/`: contratos, conversa, persistência, reminders, review e smoke dos adapters
 
@@ -174,6 +177,25 @@ Os workflows do n8n devem usar apenas `{{$env.*}}` para segredos.
 npm --prefix knowledge-base install
 npm --prefix knowledge-base test
 ```
+
+## API e frontend local
+
+```bash
+npm --prefix knowledge-base run dev:api
+npm --prefix knowledge-base run dev:frontend
+```
+
+Endpoints HTTP principais:
+
+- `GET /api/health`
+- `GET /api/dashboard`
+- `GET /api/notes/:id`
+- `GET|POST /api/query`
+- `POST /api/ingest`
+- `POST /api/onboarding`
+- `POST /api/conversation`
+- `POST /api/webhooks/github/push`
+- `POST /api/webhooks/whatsapp`
 
 ## Workflows opcionais
 

@@ -37,11 +37,12 @@ export type RuntimeEnvironment = {
 };
 
 export function readEnvironment(env = process.env): RuntimeEnvironment {
+  const basePath = process.cwd();
   return {
-    vaultPath: env.KB_VAULT_PATH || '/home/node/knowledge-vault',
-    archivePath: env.KB_ARCHIVE_PATH || '/home/node/knowledge-vault-archive',
-    manifestPath: env.KB_PROJECTS_MANIFEST || path.join('/home/node/knowledge-base', 'projects.json'),
-    workspacesManifestPath: env.KB_WORKSPACES_MANIFEST || path.join('/home/node/knowledge-base', 'workspaces.json'),
+    vaultPath: env.KB_VAULT_PATH || path.resolve(basePath, '../knowledge-vault'),
+    archivePath: env.KB_ARCHIVE_PATH || path.resolve(basePath, '../knowledge-vault-archive'),
+    manifestPath: env.KB_PROJECTS_MANIFEST || path.join(basePath, 'projects.json'),
+    workspacesManifestPath: env.KB_WORKSPACES_MANIFEST || path.join(basePath, 'workspaces.json'),
     webhookSecret: String(env.KB_WEBHOOK_SECRET || '').trim(),
     githubWebhookSecret: String(env.KB_GITHUB_APP_WEBHOOK_SECRET || '').trim(),
     attachmentMaxVaultBytes: Number(env.KB_ATTACHMENT_MAX_VAULT_BYTES || 10 * 1024 * 1024),
