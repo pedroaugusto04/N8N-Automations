@@ -105,7 +105,7 @@ A Evolution API roda no Docker Compose junto ao n8n:
 # Configurar .env com as variáveis necessárias
 EVOLUTION_API_KEY=sua-chave-segura
 EVOLUTION_API_PORT=8081
-EVOLUTION_API_URL=http://evolution-api:8080
+EVOLUTION_API_URL=http://127.0.0.1:8081
 EVOLUTION_API_PUBLIC_URL=https://seu-dominio:8081
 EVOLUTION_INSTANCE_NAME=kb-bot
 WPP_KB_GROUP_JID=ID-DO-GRUPO@g.us
@@ -157,7 +157,7 @@ Crie um grupo no WhatsApp e envie uma mensagem teste. Verifique os logs do workf
 No host/Docker:
 
 - `EVOLUTION_API_KEY` (obrigatória, chave da Evolution API)
-- `EVOLUTION_API_URL` (obrigatória, URL interna do container)
+- `EVOLUTION_API_URL` (obrigatória, URL usada pelo n8n; com `network_mode: host`, use a porta publicada no host)
 - `EVOLUTION_API_PUBLIC_URL` (obrigatória, URL pública para acesso externo)
 - `EVOLUTION_INSTANCE_NAME` (nome da instância, ex: `kb-bot`)
 - `WPP_KB_GROUP_JID` (obrigatória, JID do grupo do WhatsApp)
