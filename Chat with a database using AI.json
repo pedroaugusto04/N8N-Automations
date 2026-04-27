@@ -1,6 +1,6 @@
 [
   {
-    "updatedAt": "2026-04-27T04:57:24.000Z",
+    "updatedAt": "2026-04-27T05:12:33.231Z",
     "createdAt": "2026-04-27T03:40:00.589Z",
     "id": "S4kpRhwJWjREFlCp",
     "name": "Chat with a database using AI",
@@ -26,8 +26,8 @@
         "webhookId": "c102c542-e9cd-4cfe-992b-dae28442d3b0",
         "credentials": {
           "telegramApi": {
-            "id": "TJeSLkhUJq1JEelm",
-            "name": "Telegram account 3"
+            "id": "FWUwWMyPu0F0MTjw",
+            "name": "Telegram Feconect"
           }
         }
       },
@@ -83,8 +83,8 @@
         ],
         "credentials": {
           "openAiApi": {
-            "id": "BiVV4g4BJ1YxqhL2",
-            "name": "OpenAI account"
+            "id": "eDymqKKw1WNIWIc5",
+            "name": "OpenRouter Account"
           }
         }
       },
@@ -200,27 +200,27 @@
       "instanceId": "640e2b64548de126c4bfd6524a25adc96a52abe563e283d5677cde8c544e242f"
     },
     "pinData": {},
-    "versionId": "addf3dd3-5f01-494b-8a05-3c9421f286a7",
-    "activeVersionId": "addf3dd3-5f01-494b-8a05-3c9421f286a7",
-    "versionCounter": 24,
+    "versionId": "32fcae73-aed9-405c-a1d7-2e3f0949478f",
+    "activeVersionId": "8eca2462-0e0a-437f-8bf3-dc9fd08927f1",
+    "versionCounter": 27,
     "triggerCount": 0,
     "tags": [],
     "shared": [
       {
-        "updatedAt": "2026-04-27T01:08:17.124Z",
-        "createdAt": "2026-04-27T01:08:17.124Z",
+        "updatedAt": "2026-04-27T03:40:00.594Z",
+        "createdAt": "2026-04-27T03:40:00.594Z",
         "role": "workflow:owner",
         "workflowId": "S4kpRhwJWjREFlCp",
-        "projectId": "3cyfZ9Z49rQj4oyf",
+        "projectId": "PTPubzEf62cPswRq",
         "project": {
-          "updatedAt": "2026-04-27T01:03:01.275Z",
-          "createdAt": "2026-04-27T01:03:01.275Z",
-          "id": "3cyfZ9Z49rQj4oyf",
-          "name": "Unnamed Project",
+          "updatedAt": "2026-04-27T03:37:44.916Z",
+          "createdAt": "2026-04-27T03:33:20.870Z",
+          "id": "PTPubzEf62cPswRq",
+          "name": "Pedro Duarte <pedroaugustoaduarte@gmail.com>",
           "type": "personal",
           "icon": null,
           "description": null,
-          "creatorId": "b02fd094-3d4f-4c16-9b73-ee1ac26bbaf6"
+          "creatorId": "ae62cd26-0424-446d-bf3e-1e703e78fa8b"
         }
       }
     ],
