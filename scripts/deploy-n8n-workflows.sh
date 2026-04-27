@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "🚀 Starting Ultra-Stable Deploy..."
+echo "🚀 Starting Deploy..."
 
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.yml}"
 N8N_SERVICE="${N8N_SERVICE:-n8n}"
@@ -46,13 +46,13 @@ for wf in "${WORKFLOW_FILES[@]}"; do
 done
 rm -rf "$TMP_DIR"
 
-# 4. Ativação e Refresh Global via RESTART
-echo "🔄 Refreshing webhooks via global restart..."
+# 4. Restart para limpar webhooks da memória
+echo "🔄 Restarting n8n..."
 docker compose -f "$COMPOSE_FILE" restart "$N8N_SERVICE"
 
-# 5. Health Check
-echo "⏳ Waiting for n8n to wake up..."
-for i in $(seq 1 30); do
+# 5. Health Check — espera o n8n subir
+echo "⏳ Waiting for n8n to come back online..."
+for i in $(seq 1 60); do
   if docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" curl -s http://localhost:5678/healthz >/dev/null 2>&1; then
     echo "✅ n8n is ONLINE"
     break
@@ -60,4 +60,29 @@ for i in $(seq 1 30); do
   sleep 2
 done
 
+# 6. Ativação explícita de TODOS os workflows
+echo "⚡ Activating all workflows..."
+sleep 5  # Dá tempo pro n8n carregar os workflows do banco
+ALL_IDS=$(
+  docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" \
+    n8n export:workflow --all 2>/dev/null | jq -r '.[] | .id' 2>/dev/null || echo ""
+)
+
+if [ -z "$ALL_IDS" ]; then
+  echo "⚠️  Could not read workflow IDs — check n8n logs"
+else
+  for id in $ALL_IDS; do
+    echo "  ✅ Activating workflow $id..."
+    docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" \
+      n8n update:workflow --id="$id" --active=true 2>&1 || echo "  ⚠️  Failed to activate $id"
+  done
+fi
+
+# 7. Status Final
+echo ""
+echo "📋 Final workflow status:"
+docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" \
+  n8n export:workflow --all 2>/dev/null | jq -r '.[] | "  \(.id) => active=\(.active) (\(.name))"' 2>/dev/null || echo "  (could not read status)"
+
+echo ""
 echo "🎉 DEPLOY COMPLETE!"
