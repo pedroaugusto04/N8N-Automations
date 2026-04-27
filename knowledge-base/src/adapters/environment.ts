@@ -40,6 +40,15 @@ export type RuntimeEnvironment = {
   evolutionApiUrl: string;
   evolutionApiPublicUrl: string;
   evolutionInstanceName: string;
+  databaseUrl: string;
+  adminEmail: string;
+  adminPassword: string;
+  jwtAccessSecret: string;
+  jwtRefreshSecret: string;
+  accessTokenTtlSeconds: number;
+  refreshTokenTtlSeconds: number;
+  credentialsEncryptionKey: string;
+  internalServiceToken: string;
 };
 
 export function readEnvironment(env = process.env): RuntimeEnvironment {
@@ -84,5 +93,14 @@ export function readEnvironment(env = process.env): RuntimeEnvironment {
     evolutionApiUrl: String(env.EVOLUTION_API_URL || '').trim(),
     evolutionApiPublicUrl: String(env.EVOLUTION_API_PUBLIC_URL || '').trim(),
     evolutionInstanceName: String(env.EVOLUTION_INSTANCE_NAME || '').trim(),
+    databaseUrl: String(env.KB_DATABASE_URL || '').trim(),
+    adminEmail: String(env.KB_ADMIN_EMAIL || '').trim().toLowerCase(),
+    adminPassword: String(env.KB_ADMIN_PASSWORD || '').trim(),
+    jwtAccessSecret: String(env.KB_JWT_ACCESS_SECRET || '').trim(),
+    jwtRefreshSecret: String(env.KB_JWT_REFRESH_SECRET || '').trim(),
+    accessTokenTtlSeconds: Number(env.KB_ACCESS_TOKEN_TTL_SECONDS || 15 * 60),
+    refreshTokenTtlSeconds: Number(env.KB_REFRESH_TOKEN_TTL_SECONDS || 30 * 24 * 60 * 60),
+    credentialsEncryptionKey: String(env.KB_CREDENTIALS_ENCRYPTION_KEY || '').trim(),
+    internalServiceToken: String(env.KB_INTERNAL_SERVICE_TOKEN || '').trim(),
   };
 }

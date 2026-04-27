@@ -161,16 +161,30 @@ Todos os segredos relevantes ficam em `.env` na VPS e nunca no GitHub:
 
 Os workflows do n8n devem usar apenas `{{$env.*}}` para segredos.
 
-### Página de integrações
+### Auth e integrações
 
-O frontend expõe `/settings/integrations` como um painel read-only de status e guia de setup do workspace atual. A página mostra GitHub App, Webhooks, WhatsApp, Telegram, AI e Vault Git com:
+O backend usa login local com `kb_users`, senha via `crypto.scrypt` e JWT stateless em cookies HttpOnly:
 
-- status `connected`, `partial` ou `missing`
-- variáveis configuradas e ausentes apenas por nome
-- URLs úteis para webhook, instalação do GitHub App e pairing do WhatsApp
-- checklist e avisos operacionais
+- `kb_access_token`: access token curto
+- `kb_refresh_token`: refresh token longo
+- `POST /api/auth/logout` limpa cookies, sem denylist server-side
 
-O endpoint usado é `GET /api/integrations`, que responde `{ ok: true, workspaceSlug, integrations }`. Ele nunca retorna valores de secrets, tokens ou API keys; segredos continuam exclusivamente em `.env`/infra e devem ser alterados fora da UI.
+O admin inicial é criado por `KB_ADMIN_EMAIL` e `KB_ADMIN_PASSWORD`. Configure também `KB_DATABASE_URL`, `KB_JWT_ACCESS_SECRET`, `KB_JWT_REFRESH_SECRET`, `KB_CREDENTIALS_ENCRYPTION_KEY` (base64 de 32 bytes) e `KB_INTERNAL_SERVICE_TOKEN`.
+
+O frontend expõe `/settings/integrations` para salvar, mascarar e revogar credenciais por `user + workspace + provider`. Segredos são gravados em `kb_integration_credentials.encrypted_config` com AES-256-GCM e nunca são retornados nas respostas do navegador.
+
+Endpoints principais:
+
+- `POST /api/auth/login`
+- `POST /api/auth/refresh`
+- `POST /api/auth/logout`
+- `GET /api/auth/me`
+- `GET /api/integrations?workspaceSlug=...`
+- `PUT /api/integrations/:provider`
+- `DELETE /api/integrations/:provider`
+- `POST /api/internal/integrations/:provider/resolve`
+
+Endpoints mutáveis de navegador validam `Origin`/`Referer`. A API interna exige `Authorization: Bearer ${KB_INTERNAL_SERVICE_TOKEN}` e retorna o segredo descriptografado somente para o provider solicitado.
 
 ## CLIs principais
 
@@ -213,6 +227,7 @@ Endpoints HTTP principais:
 - `GET /api/health`
 - `GET /api/dashboard`
 - `GET /api/integrations`
+- `GET /api/auth/me`
 - `GET /api/notes/:id`
 - `GET|POST /api/query`
 - `POST /api/ingest`

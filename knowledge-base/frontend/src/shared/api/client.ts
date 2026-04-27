@@ -4,9 +4,10 @@ import type { NoteDetail } from './models/note';
 import type { QueryResponse } from './models/query';
 import { normalizeDashboard } from './normalizers/dashboard';
 
-async function request<T>(path: string): Promise<T> {
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(path, {
-    headers: { accept: 'application/json' },
+    ...init,
+    headers: { accept: 'application/json', ...(init.headers || {}) },
   });
   if (!response.ok) {
     throw new Error(`request_failed:${response.status}`);
@@ -20,6 +21,30 @@ export function fetchDashboard(): Promise<Dashboard> {
 
 export function fetchIntegrations(): Promise<IntegrationsResponse> {
   return request<IntegrationsResponse>('/api/integrations');
+}
+
+export function saveIntegration(params: {
+  provider: string;
+  workspaceSlug: string;
+  config: Record<string, string>;
+  publicMetadata?: Record<string, unknown>;
+  externalIdentities?: Array<{ provider: string; externalId: string }>;
+}) {
+  return request(`/api/integrations/${encodeURIComponent(params.provider)}`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      workspaceSlug: params.workspaceSlug,
+      config: params.config,
+      publicMetadata: params.publicMetadata || {},
+      externalIdentities: params.externalIdentities || [],
+    }),
+  });
+}
+
+export function revokeIntegration(provider: string, workspaceSlug: string) {
+  const search = new URLSearchParams({ workspaceSlug });
+  return request(`/api/integrations/${encodeURIComponent(provider)}?${search.toString()}`, { method: 'DELETE' });
 }
 
 export async function fetchNote(id: string): Promise<NoteDetail> {
