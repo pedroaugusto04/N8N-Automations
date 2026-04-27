@@ -7,16 +7,39 @@ REMOTE_IMPORT_DIR="${REMOTE_IMPORT_DIR:-/tmp/n8n-workflows-import}"
 N8N_API_URL="${N8N_API_URL:-http://localhost:5678}"
 
 # =========================
-# 📂 Encontrar workflows válidos
+# 📂 Encontrar SOMENTE candidatos válidos
 # =========================
-mapfile -d '' WORKFLOW_FILES < <(
+mapfile -d '' ALL_JSON_FILES < <(
   find . -type f -name '*.json' \
-    ! -path './backups/*' \
-    ! -name 'workflows-*.json' \
+    ! -path '*/node_modules/*' \
+    ! -path '*/.git/*' \
+    ! -path '*/backups/*' \
+    ! -name 'package.json' \
+    ! -name 'package-lock.json' \
+    ! -name 'tsconfig.json' \
+    ! -name '*.map' \
     -print0 | sort -z
 )
 
-echo "Found ${#WORKFLOW_FILES[@]} workflow(s)"
+WORKFLOW_FILES=()
+
+echo "Scanning for valid n8n workflows..."
+
+for f in "${ALL_JSON_FILES[@]}"; do
+  # valida se é workflow real
+  if jq -e 'type=="object" and has("nodes") and has("connections")' "$f" >/dev/null 2>&1; then
+    WORKFLOW_FILES+=("$f")
+  else
+    echo "Skipping non-workflow: $f"
+  fi
+done
+
+if [ "${#WORKFLOW_FILES[@]}" -eq 0 ]; then
+  echo "No valid workflows found" >&2
+  exit 1
+fi
+
+echo "Found ${#WORKFLOW_FILES[@]} valid workflow(s)"
 
 # =========================
 # 🐳 Garantir container
@@ -48,7 +71,7 @@ docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" \
 TMP_DIR="$(mktemp -d)"
 
 # =========================
-# 📤 Copiar + corrigir JSON
+# 📤 Copiar + forçar active
 # =========================
 for workflow_file in "${WORKFLOW_FILES[@]}"; do
   clean_name="${workflow_file#./}"
@@ -57,9 +80,8 @@ for workflow_file in "${WORKFLOW_FILES[@]}"; do
 
   echo "Processing $clean_name"
 
-  # força ativo (somente objetos válidos)
-  jq 'if type=="object" then .active = true else . end' \
-    "$workflow_file" > "$tmp_file"
+  # força active=true com segurança
+  jq '.active = true' "$workflow_file" > "$tmp_file"
 
   docker compose -f "$COMPOSE_FILE" cp "$tmp_file" "$N8N_SERVICE:$target_file"
 done
@@ -78,6 +100,18 @@ for workflow_file in "${WORKFLOW_FILES[@]}"; do
 done
 
 # =========================
+# ⏳ Esperar API subir
+# =========================
+echo "Waiting for API..."
+
+for i in $(seq 1 30); do
+  if curl -s "$N8N_API_URL/healthz" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 2
+done
+
+# =========================
 # ✅ Ativar via API
 # =========================
 workflow_ids=$(
@@ -93,12 +127,17 @@ for id in $workflow_ids; do
 done
 
 # =========================
-# 🧪 Verificação
+# 🧪 Verificação final
 # =========================
+echo "Final status:"
+
 docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" \
   n8n export:workflow --all \
   | jq -r '.[] | "\(.id) => active=\(.active)"'
 
+# =========================
+# 🧹 Cleanup
+# =========================
 rm -rf "$TMP_DIR"
 
-echo "✅ DONE"
+echo "✅ DONE: All workflows imported and ACTIVE"
