@@ -8,7 +8,7 @@
     "nodes": [
       {
         "parameters": {
-          "rule": {
+          "rule": { 
             "interval": [
               {
                 "field": "cronExpression",
