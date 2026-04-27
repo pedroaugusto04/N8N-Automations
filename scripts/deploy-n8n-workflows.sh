@@ -107,6 +107,41 @@ for workflow_file in "${WORKFLOW_FILES[@]}"; do
 done
 
 # =========================
+# 🔄 Limpeza Prévia e Desativação (Evita conflitos de Webhook)
+# =========================
+echo "Scanning existing workflows for conflicts..."
+existing_workflows=$(
+  docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" \
+    n8n export:workflow --all 2>/dev/null || echo "[]"
+)
+
+for workflow_file in "${WORKFLOW_FILES[@]}"; do
+  # Extrair nome e ID do arquivo local
+  local_name=$(jq -r 'if type=="array" then .[0].name else .name end' "$workflow_file")
+  local_id=$(jq -r 'if type=="array" then .[0].id else .id end' "$workflow_file")
+
+  # Procurar por conflito de nome no n8n (mesmo nome, ID diferente)
+  conflicting_id=$(echo "$existing_workflows" | jq -r --arg name "$local_name" --arg id "$local_id" '.[] | select(.name == $name and .id != $id) | .id')
+
+  if [ -n "$conflicting_id" ]; then
+    echo "⚠️  Conflict detected: Workflow '$local_name' exists with different ID ($conflicting_id). Deleting old one..."
+    for cid in $conflicting_id; do
+      docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" \
+        n8n delete:workflow --id="$cid" || true
+    done
+  fi
+done
+
+# Desativar todos os IDs atuais no n8n para liberar portas/memória
+echo "Deactivating all current workflows to clear registry..."
+current_ids=$(echo "$existing_workflows" | jq -r '.[].id' 2>/dev/null || echo "")
+for id in $current_ids; do
+  docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" \
+    n8n update:workflow --id="$id" --active=false >/dev/null 2>&1 || true
+done
+sleep 2
+
+# =========================
 # 📥 Importar (Overwrite mode)
 # =========================
 echo "Importing workflows into n8n..."
@@ -119,34 +154,19 @@ for workflow_file in "${WORKFLOW_FILES[@]}"; do
 done
 
 # =========================
-# 🔄 Desativar → Reativar (garante re-registro dos webhooks)
+# ✅ Ativação Final
 # =========================
-echo "Collecting workflow IDs..."
-workflow_ids=$(
+echo "Activating workflows..."
+all_ids=$(
   docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" \
     n8n export:workflow --all 2>/dev/null | jq -r '.[].id' 2>/dev/null || echo ""
 )
 
-if [ -z "$workflow_ids" ]; then
-  echo "⚠️  No workflow IDs found — nothing to activate"
-else
-  # Passo 1: Desativar todos (remove listeners de webhook do registro interno)
-  echo "Deactivating all workflows to clear webhook registry..."
-  for id in $workflow_ids; do
-    echo "  Deactivating $id..."
-    docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" \
-      n8n update:workflow --id="$id" --active=false 2>&1 || echo "  ⚠️  Failed to deactivate $id"
-  done
-  sleep 5
-
-  # Passo 2: Reativar todos (re-registra os listeners de webhook corretamente)
-  echo "Re-activating all workflows (webhooks will be re-registered)..."
-  for id in $workflow_ids; do
-    echo "  Activating $id..."
-    docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" \
-      n8n update:workflow --id="$id" --active=true 2>&1 || echo "  ⚠️  Failed to activate $id"
-  done
-fi
+for id in $all_ids; do
+  echo "  Activating $id..."
+  docker compose -f "$COMPOSE_FILE" exec -T "$N8N_SERVICE" \
+    n8n update:workflow --id="$id" --active=true >/dev/null 2>&1 || echo "Warning: Failed to activate $id"
+done
 
 # =========================
 # ⏳ Verificação final de saúde
