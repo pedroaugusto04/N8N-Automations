@@ -7,9 +7,10 @@ COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.yml}"
 N8N_SERVICE="${N8N_SERVICE:-n8n}"
 REMOTE_IMPORT_DIR="/tmp/n8n-import-$(date +%s)"
 
-# 1. Encontrar Workflows (apenas arquivos que tenham 'nodes')
+# 1. Encontrar Workflows (apenas na pasta knowledge-base)
 WORKFLOW_FILES=()
-find_json=$(find . -type f -name '*.json' ! -path '*/.*' ! -path '*/node_modules/*' ! -name 'package*.json')
+# Usamos find apenas na pasta de interesse para evitar erros de permissão em pastas de dados
+find_json=$(find knowledge-base/ -type f -name '*.json' 2>/dev/null || echo "")
 
 for f in $find_json; do
   if jq -e 'if type=="array" then .[0] else . end | has("nodes")' "$f" >/dev/null 2>&1; then
