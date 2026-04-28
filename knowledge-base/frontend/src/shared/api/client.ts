@@ -7,12 +7,40 @@ import { normalizeDashboard } from './normalizers/dashboard';
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(path, {
     ...init,
+    credentials: 'include',
     headers: { accept: 'application/json', ...(init.headers || {}) },
   });
   if (!response.ok) {
     throw new Error(`request_failed:${response.status}`);
   }
   return (await response.json()) as T;
+}
+
+export type AuthUser = {
+  id: string;
+  email: string;
+  displayName: string;
+  role: string;
+};
+
+export function login(params: { email: string; password: string }) {
+  return request<{ ok: true; user: AuthUser }>('/api/auth/login', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+}
+
+export function signup(params: { name: string; email: string; password: string }) {
+  return request<{ ok: true; user: AuthUser }>('/api/auth/signup', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+}
+
+export function logout() {
+  return request<{ ok: true }>('/api/auth/logout', { method: 'POST' });
 }
 
 export function fetchDashboard(): Promise<Dashboard> {

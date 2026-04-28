@@ -52,8 +52,12 @@ export function assertTrustedBrowserOrigin(request: Request) {
 }
 
 function expectedOrigins(request: Request): Set<string> {
-  const publicBaseUrl = readEnvironment().publicBaseUrl;
+  const environment = readEnvironment();
+  const publicBaseUrl = environment.publicBaseUrl;
   const origins = new Set<string>();
+  for (const origin of environment.allowedOrigins) {
+    origins.add(new URL(origin).origin);
+  }
   if (publicBaseUrl) origins.add(new URL(publicBaseUrl).origin);
   const host = request.headers['x-forwarded-host'] || request.headers.host;
   if (host) {

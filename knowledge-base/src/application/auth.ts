@@ -1,16 +1,18 @@
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
 
-import { Injectable, OnModuleInit, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, Injectable, OnModuleInit, UnauthorizedException } from '@nestjs/common';
 
 import { readEnvironment } from '../adapters/environment.js';
-import type { KnowledgeStore, KbUser } from './knowledge-store.js';
+import type { KbUser } from './models/repository-records.models.js';
+import { SchemaMigrator, UserRepository } from './ports/repositories.js';
 
 const scrypt = promisify(crypto.scrypt);
 
 export type AuthenticatedUser = {
   id: string;
   email: string;
+  displayName: string;
   role: string;
 };
 
@@ -94,28 +96,50 @@ export function parseCookies(cookieHeader: string | undefined): Record<string, s
 }
 
 function toAuthenticatedUser(user: KbUser): AuthenticatedUser {
-  return { id: user.id, email: user.email, role: user.role };
+  return { id: user.id, email: user.email, displayName: user.displayName, role: user.role };
 }
 
 @Injectable()
 export class AuthService implements OnModuleInit {
-  constructor(private readonly store: KnowledgeStore) {}
+  constructor(
+    private readonly users: UserRepository,
+    private readonly schemaMigrator: SchemaMigrator = users as unknown as SchemaMigrator,
+  ) {}
 
   async onModuleInit() {
-    await this.store.migrate();
+    await this.schemaMigrator.migrate();
     const environment = readEnvironment();
     if (!environment.adminEmail || !environment.adminPassword) return;
-    const existing = await this.store.findUserByEmail(environment.adminEmail);
+    const existing = await this.users.findUserByEmail(environment.adminEmail);
     if (existing) return;
-    await this.store.createUser({
+    await this.users.createUser({
       email: environment.adminEmail,
+      displayName: 'Admin',
       passwordHash: await hashPassword(environment.adminPassword),
       role: 'admin',
     });
   }
 
+  async signup(input: { email: string; password: string; name: string }): Promise<{ user: AuthenticatedUser; tokens: TokenPair }> {
+    const email = String(input.email || '').trim().toLowerCase();
+    const displayName = String(input.name || '').trim();
+    const password = String(input.password || '');
+    if (!email || !email.includes('@')) throw new UnauthorizedException('invalid_signup');
+    if (password.length < 8) throw new UnauthorizedException('invalid_signup');
+    if (!displayName) throw new UnauthorizedException('invalid_signup');
+    const existing = await this.users.findUserByEmail(email);
+    if (existing) throw new ConflictException('email_already_registered');
+    const user = await this.users.createUser({
+      email,
+      displayName,
+      passwordHash: await hashPassword(password),
+      role: 'user',
+    });
+    return { user: toAuthenticatedUser(user), tokens: this.issueTokens(user) };
+  }
+
   async login(email: string, password: string): Promise<{ user: AuthenticatedUser; tokens: TokenPair }> {
-    const user = await this.store.findUserByEmail(String(email || '').trim().toLowerCase());
+    const user = await this.users.findUserByEmail(String(email || '').trim().toLowerCase());
     if (!user || !(await verifyPassword(password, user.passwordHash))) {
       throw new UnauthorizedException('invalid_credentials');
     }
@@ -125,7 +149,7 @@ export class AuthService implements OnModuleInit {
   async refresh(refreshToken: string): Promise<{ user: AuthenticatedUser; tokens: TokenPair }> {
     const environment = readEnvironment();
     const payload = verifyJwt(refreshToken, environment.jwtRefreshSecret, 'refresh');
-    const user = await this.store.findUserById(payload.sub);
+    const user = await this.users.findUserById(payload.sub);
     if (!user) throw new UnauthorizedException('user_not_found');
     return { user: toAuthenticatedUser(user), tokens: this.issueTokens(user) };
   }
@@ -134,7 +158,7 @@ export class AuthService implements OnModuleInit {
     if (!accessToken) throw new UnauthorizedException('missing_access_token');
     const environment = readEnvironment();
     const payload = verifyJwt(accessToken, environment.jwtAccessSecret, 'access');
-    const user = await this.store.findUserById(payload.sub);
+    const user = await this.users.findUserById(payload.sub);
     if (!user) throw new UnauthorizedException('user_not_found');
     return toAuthenticatedUser(user);
   }

@@ -43,11 +43,6 @@ function env(overrides = {}) {
     KB_REVIEW_AI_API_KEY: 'review-key-value',
     KB_CONVERSATION_AI_PROVIDER: 'openai',
     KB_CONVERSATION_AI_API_KEY: 'conversation-key-value',
-    KB_VAULT_PATH: '/vault',
-    KB_ENABLE_GIT_PUSH: 'true',
-    KB_VAULT_REMOTE_URL: 'https://github.com/acme/vault.git',
-    KB_VAULT_GIT_PUSH_USERNAME: 'kb-bot',
-    KB_VAULT_GIT_PUSH_TOKEN: 'git-token-value',
     ...overrides,
   });
 }
@@ -63,14 +58,13 @@ test('integration status reports connected services without leaking secrets', ()
   assert.equal(result.workspaceSlug, 'default');
   assert.equal(byId(result, 'github-app').status, 'connected');
   assert.equal(byId(result, 'webhooks').links[0].url, 'https://kb.example.com/n8n/webhook/kb-github-push');
-  assert.equal(byId(result, 'vault-git').status, 'connected');
+  assert.equal(result.integrations.some((integration) => integration.name.includes('Vault')), false);
 
   const json = JSON.stringify(result);
   assert.equal(json.includes('github-secret-value'), false);
   assert.equal(json.includes('github-token-value'), false);
   assert.equal(json.includes('telegram-token-value'), false);
   assert.equal(json.includes('review-key-value'), false);
-  assert.equal(json.includes('git-token-value'), false);
 });
 
 test('integration status distinguishes partial and missing configuration', () => {
@@ -82,9 +76,6 @@ test('integration status distinguishes partial and missing configuration', () =>
       KB_TELEGRAM_BOT_TOKEN: '',
       KB_REVIEW_AI_API_KEY: '',
       KB_CONVERSATION_AI_API_KEY: '',
-      KB_ENABLE_GIT_PUSH: 'false',
-      KB_VAULT_REMOTE_URL: '',
-      KB_VAULT_GIT_PUSH_TOKEN: '',
     }),
     workspaces: baseWorkspaces,
     projects: baseProjects,
@@ -94,7 +85,6 @@ test('integration status distinguishes partial and missing configuration', () =>
   assert.equal(byId(partial, 'webhooks').status, 'partial');
   assert.equal(byId(partial, 'telegram').status, 'partial');
   assert.equal(byId(partial, 'ai').status, 'partial');
-  assert.equal(byId(partial, 'vault-git').status, 'partial');
   assert.deepEqual(byId(partial, 'webhooks').missingEnv, ['KB_PUBLIC_BASE_URL']);
   assert.equal(byId(partial, 'webhooks').links[0].url, '/n8n/webhook/kb-github-push');
 

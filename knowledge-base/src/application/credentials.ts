@@ -1,9 +1,10 @@
 import crypto from 'node:crypto';
 
-import { BadRequestException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 
 import { readEnvironment } from '../adapters/environment.js';
-import { KnowledgeStore, type IntegrationCredentialRecord } from './knowledge-store.js';
+import type { IntegrationCredentialRecord } from './models/repository-records.models.js';
+import { CredentialRepository, ExternalIdentityRepository } from './ports/repositories.js';
 
 export const integrationProviders = [
   'telegram',
@@ -13,7 +14,6 @@ export const integrationProviders = [
   'ai-conversation',
   'github',
   'github-app',
-  'vault-git',
 ] as const;
 
 export type IntegrationProvider = (typeof integrationProviders)[number];
@@ -45,7 +45,6 @@ const providerLabels: Record<IntegrationProvider, { name: string; description: s
   'ai-conversation': { name: 'AI Conversation', description: 'Provider, modelo e chave para conversa e respostas.' },
   github: { name: 'GitHub Token', description: 'Token pessoal ou fine-grained para leitura de repositorios.' },
   'github-app': { name: 'GitHub App', description: 'App, instalacao e webhook por workspace.' },
-  'vault-git': { name: 'Vault Git', description: 'Credenciais de sincronizacao remota do vault.' },
 };
 
 function isProvider(value: string): value is IntegrationProvider {
@@ -120,15 +119,40 @@ function normalizeConfig(value: unknown): Record<string, unknown> {
 function sanitizePublicMetadata(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   const metadata = value as Record<string, unknown>;
-  return Object.fromEntries(Object.entries(metadata).filter(([, entry]) => typeof entry !== 'function'));
+  return Object.fromEntries(
+    Object.entries(metadata).filter(([key, entry]) => key === 'label' && typeof entry === 'string' && entry.trim().length > 0),
+  );
+}
+
+const allowedExternalIdentities: Partial<Record<IntegrationProvider, Array<'telegram' | 'whatsapp' | 'github' | 'github-app'>>> = {
+  telegram: ['telegram'],
+  whatsapp: ['whatsapp'],
+  evolution: ['whatsapp'],
+  github: ['github'],
+  'github-app': ['github-app'],
+};
+
+function canAttachExternalIdentity(provider: IntegrationProvider, identityProvider: string): boolean {
+  return Boolean(allowedExternalIdentities[provider]?.includes(identityProvider as 'telegram' | 'whatsapp' | 'github' | 'github-app'));
+}
+
+function defaultIdentityType(provider: string): string {
+  if (provider === 'telegram') return 'chat_id';
+  if (provider === 'whatsapp') return 'jid';
+  if (provider === 'github-app') return 'installation_id';
+  if (provider === 'github') return 'account_id';
+  return 'external_id';
 }
 
 @Injectable()
 export class IntegrationCredentialService {
-  constructor(private readonly store: KnowledgeStore) {}
+  constructor(
+    private readonly credentials: CredentialRepository,
+    private readonly externalIdentities: ExternalIdentityRepository = credentials as unknown as ExternalIdentityRepository,
+  ) {}
 
   async list(userId: string, workspaceSlug = 'default') {
-    const records = await this.store.listCredentials(userId, workspaceSlug);
+    const records = await this.credentials.listCredentials(userId, workspaceSlug);
     return {
       ok: true as const,
       workspaceSlug,
@@ -151,7 +175,7 @@ export class IntegrationCredentialService {
       ...sanitizePublicMetadata(input.publicMetadata),
       configKeys: Object.keys(config),
     };
-    const record = await this.store.upsertCredential({
+    const record = await this.credentials.upsertCredential({
       userId: input.userId,
       workspaceSlug,
       provider: input.provider,
@@ -164,9 +188,22 @@ export class IntegrationCredentialService {
       for (const identity of input.externalIdentities) {
         if (!identity || typeof identity !== 'object') continue;
         const provider = String((identity as Record<string, unknown>).provider || '').trim();
+        const identityType = String((identity as Record<string, unknown>).identityType || defaultIdentityType(provider)).trim();
         const externalId = String((identity as Record<string, unknown>).externalId || '').trim();
-        if (!provider || !externalId) continue;
-        await this.store.upsertExternalIdentity({ userId: input.userId, provider, externalId, publicMetadata: {} });
+        if (!provider || !identityType || !externalId) continue;
+        if (!canAttachExternalIdentity(input.provider, provider)) throw new BadRequestException('external_identity_not_allowed_for_provider');
+        const existing = await this.externalIdentities.findExternalIdentity(provider, identityType, externalId);
+        if (existing && existing.userId !== input.userId) throw new ConflictException('external_identity_already_bound');
+        await this.externalIdentities.upsertExternalIdentity({
+          userId: input.userId,
+          workspaceSlug,
+          provider,
+          identityType,
+          externalId,
+          credentialId: record.id,
+          metadata: {},
+          publicMetadata: {},
+        });
       }
     }
 
@@ -175,7 +212,7 @@ export class IntegrationCredentialService {
 
   async revoke(userId: string, workspaceSlug: string, provider: string) {
     if (!isProvider(provider)) throw new NotFoundException('provider_not_found');
-    const record = await this.store.revokeCredential(userId, workspaceSlug || 'default', provider);
+    const record = await this.credentials.revokeCredential(userId, workspaceSlug || 'default', provider, encryptConfig({ revoked: true }));
     return { ok: true as const, integration: publicCredential(record, provider, workspaceSlug || 'default') };
   }
 
@@ -183,7 +220,7 @@ export class IntegrationCredentialService {
     provider: string;
     workspaceSlug?: string;
     userId?: string;
-    externalIdentity?: { provider: string; externalId: string };
+    externalIdentity?: { provider: string; identityType?: string; externalId: string };
     authorization?: string;
   }) {
     const token = input.authorization?.startsWith('Bearer ') ? input.authorization.slice('Bearer '.length) : '';
@@ -193,11 +230,12 @@ export class IntegrationCredentialService {
     if (!isProvider(input.provider)) throw new NotFoundException('provider_not_found');
     let userId = input.userId || '';
     if (!userId && input.externalIdentity) {
-      const identity = await this.store.findExternalIdentity(input.externalIdentity.provider, input.externalIdentity.externalId);
+      const identityType = input.externalIdentity.identityType || defaultIdentityType(input.externalIdentity.provider);
+      const identity = await this.externalIdentities.findExternalIdentity(input.externalIdentity.provider, identityType, input.externalIdentity.externalId);
       userId = identity?.userId || '';
     }
     if (!userId) throw new NotFoundException('identity_not_found');
-    const record = await this.store.findCredential(userId, input.workspaceSlug || 'default', input.provider);
+    const record = await this.credentials.findCredential(userId, input.workspaceSlug || 'default', input.provider);
     if (!record || record.status !== 'connected' || record.revokedAt) throw new NotFoundException('credential_not_found');
     return {
       ok: true as const,

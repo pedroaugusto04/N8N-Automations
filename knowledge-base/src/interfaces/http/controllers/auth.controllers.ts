@@ -1,28 +1,44 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Query, Req, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, Req, Res, UseGuards } from '@nestjs/common';
 import type { Request, Response } from 'express';
 
-import { AuthService } from '../../../application/auth.js';
+import { AuthService, type AuthenticatedUser } from '../../../application/auth.js';
 import { IntegrationCredentialService } from '../../../application/credentials.js';
+import { CurrentUser } from '../auth.decorators.js';
+import { AccessTokenAuthGuard, AuthRateLimitGuard, InternalServiceTokenGuard, TrustedOriginGuard } from '../auth.guards.js';
+import { parseLoginBody, parseSignupBody, type LoginBody, type SignupBody } from '../dto/auth.dto.js';
+import { parseIntegrationProvider, parseResolveIntegrationCredentialBody, parseSaveIntegrationCredentialBody } from '../dto/integration-credentials.dto.js';
 import { accessTokenFromRequest, assertTrustedBrowserOrigin, clearAuthCookies, refreshTokenFromRequest, setAuthCookies } from '../http-security.js';
-
-type LoginBody = {
-  email?: string;
-  password?: string;
-};
 
 @Controller('api/auth')
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
   @Post('login')
+  @UseGuards(AuthRateLimitGuard, TrustedOriginGuard)
   async login(@Body() body: LoginBody, @Req() request: Request, @Res({ passthrough: true }) response: Response) {
     assertTrustedBrowserOrigin(request);
-    const { user, tokens } = await this.auth.login(String(body.email || ''), String(body.password || ''));
+    const parsed = parseLoginBody(body);
+    const { user, tokens } = await this.auth.login(parsed.email, parsed.password);
+    setAuthCookies(response, tokens);
+    return { ok: true, user };
+  }
+
+  @Post('signup')
+  @UseGuards(AuthRateLimitGuard, TrustedOriginGuard)
+  async signup(@Body() body: SignupBody, @Req() request: Request, @Res({ passthrough: true }) response: Response) {
+    assertTrustedBrowserOrigin(request);
+    const parsed = parseSignupBody(body);
+    const { user, tokens } = await this.auth.signup({
+      email: parsed.email,
+      password: parsed.password,
+      name: parsed.name,
+    });
     setAuthCookies(response, tokens);
     return { ok: true, user };
   }
 
   @Post('refresh')
+  @UseGuards(AuthRateLimitGuard, TrustedOriginGuard)
   async refresh(@Req() request: Request, @Res({ passthrough: true }) response: Response) {
     assertTrustedBrowserOrigin(request);
     const { user, tokens } = await this.auth.refresh(refreshTokenFromRequest(request) || '');
@@ -31,6 +47,7 @@ export class AuthController {
   }
 
   @Post('logout')
+  @UseGuards(TrustedOriginGuard)
   logout(@Req() request: Request, @Res({ passthrough: true }) response: Response) {
     assertTrustedBrowserOrigin(request);
     clearAuthCookies(response);
@@ -38,12 +55,14 @@ export class AuthController {
   }
 
   @Get('me')
-  async me(@Req() request: Request) {
-    return { ok: true, user: await this.auth.authenticateAccessToken(accessTokenFromRequest(request)) };
+  @UseGuards(AccessTokenAuthGuard)
+  async me(@CurrentUser() user: AuthenticatedUser, @Req() request?: Request) {
+    return { ok: true, user: user || await this.auth.authenticateAccessToken(accessTokenFromRequest(request as Request)) };
   }
 }
 
 @Controller('api/integrations')
+@UseGuards(AccessTokenAuthGuard)
 export class UserIntegrationsController {
   constructor(
     private readonly auth: AuthService,
@@ -51,45 +70,51 @@ export class UserIntegrationsController {
   ) {}
 
   @Get()
-  async list(@Req() request: Request, @Query('workspaceSlug') workspaceSlug = 'default') {
-    const user = await this.auth.authenticateAccessToken(accessTokenFromRequest(request));
+  async list(@CurrentUser() currentUser: AuthenticatedUser, @Req() request: Request, @Query('workspaceSlug') workspaceSlug = 'default') {
+    const user = currentUser || await this.auth.authenticateAccessToken(accessTokenFromRequest(request));
     return this.credentials.list(user.id, workspaceSlug || 'default');
   }
 
   @Put(':provider')
-  async save(@Param('provider') provider: string, @Body() body: Record<string, unknown>, @Req() request: Request) {
+  @UseGuards(TrustedOriginGuard)
+  async save(@Param('provider') provider: string, @Body() body: Record<string, unknown>, @CurrentUser() currentUser: AuthenticatedUser, @Req() request: Request) {
     assertTrustedBrowserOrigin(request);
-    const user = await this.auth.authenticateAccessToken(accessTokenFromRequest(request));
+    const user = currentUser || await this.auth.authenticateAccessToken(accessTokenFromRequest(request));
+    const parsedProvider = parseIntegrationProvider(provider);
+    const parsedBody = parseSaveIntegrationCredentialBody(parsedProvider, body);
     return this.credentials.save({
       userId: user.id,
-      workspaceSlug: String(body.workspaceSlug || 'default'),
-      provider,
-      config: body.config,
-      publicMetadata: body.publicMetadata,
-      externalIdentities: body.externalIdentities,
+      workspaceSlug: parsedBody.workspaceSlug,
+      provider: parsedProvider,
+      config: parsedBody.config,
+      publicMetadata: parsedBody.publicMetadata,
+      externalIdentities: parsedBody.externalIdentities,
     });
   }
 
   @Delete(':provider')
-  async revoke(@Param('provider') provider: string, @Query('workspaceSlug') workspaceSlug: string, @Req() request: Request) {
+  @UseGuards(TrustedOriginGuard)
+  async revoke(@Param('provider') provider: string, @Query('workspaceSlug') workspaceSlug: string, @CurrentUser() currentUser: AuthenticatedUser, @Req() request: Request) {
     assertTrustedBrowserOrigin(request);
-    const user = await this.auth.authenticateAccessToken(accessTokenFromRequest(request));
+    const user = currentUser || await this.auth.authenticateAccessToken(accessTokenFromRequest(request));
     return this.credentials.revoke(user.id, workspaceSlug || 'default', provider);
   }
 }
 
 @Controller('api/internal/integrations')
+@UseGuards(InternalServiceTokenGuard)
 export class InternalIntegrationsController {
   constructor(private readonly credentials: IntegrationCredentialService) {}
 
   @Post(':provider/resolve')
   resolve(@Param('provider') provider: string, @Body() body: Record<string, unknown>, @Req() request: Request) {
-    const externalIdentity = body.externalIdentity && typeof body.externalIdentity === 'object' ? body.externalIdentity as { provider: string; externalId: string } : undefined;
+    const parsedProvider = parseIntegrationProvider(provider);
+    const parsedBody = parseResolveIntegrationCredentialBody(body);
     return this.credentials.resolve({
-      provider,
-      workspaceSlug: String(body.workspaceSlug || 'default'),
-      userId: body.userId ? String(body.userId) : undefined,
-      externalIdentity,
+      provider: parsedProvider,
+      workspaceSlug: parsedBody.workspaceSlug,
+      userId: parsedBody.userId,
+      externalIdentity: parsedBody.externalIdentity,
       authorization: request.headers.authorization,
     });
   }

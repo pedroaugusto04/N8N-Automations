@@ -28,7 +28,6 @@ const integrationLogos: Record<string, { src: string; label: string }> = {
   whatsapp: { src: 'https://cdn.simpleicons.org/whatsapp/25D366', label: 'WhatsApp' },
   telegram: { src: 'https://cdn.simpleicons.org/telegram/26A5E4', label: 'Telegram' },
   ai: { src: 'https://cdn.simpleicons.org/openrouter/ffffff', label: 'OpenRouter' },
-  'vault-git': { src: 'https://cdn.simpleicons.org/git/F05032', label: 'Git' },
   evolution: { src: 'https://cdn.simpleicons.org/whatsapp/25D366', label: 'Evolution API' },
   github: { src: 'https://cdn.simpleicons.org/github/ffffff', label: 'GitHub' },
   'ai-review': { src: 'https://cdn.simpleicons.org/openai/ffffff', label: 'AI Review' },

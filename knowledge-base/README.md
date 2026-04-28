@@ -6,7 +6,7 @@
 
 - `src/domain`: regras puras, tipos, renderização de notas e mensagens
 - `src/application`: casos de uso (`ingest`, `github review`, `reminders`, `conversation`, `onboarding`, `query`) e ports
-- `src/infrastructure`: repositories/adapters concretos para filesystem, manifests e vault
+- `src/infrastructure`: repositories/adapters concretos; a API HTTP usa Postgres como unica fonte de dados do produto
 - `src/interfaces/http`: controllers e DTOs NestJS
 - `src/adapters`: AI, GitHub, git, IO e ambiente legados/compartilhados
 - `src/cli`: entrypoints executáveis pelo n8n ou por outros runners
@@ -59,12 +59,12 @@ Manifestos usados:
 
 ### 2. Consulta sobre a base
 
-Existe agora uma camada inicial de busca/consulta sobre o vault:
+Existe uma camada de busca/consulta sobre as notas gravadas no Postgres:
 
 - ranking determinístico por título, tags, caminho e conteúdo
 - filtro por `workspaceSlug` e `projectSlug`
 - resposta consolidada por IA quando configurada
-- fallback sem IA com resumo e citações dos arquivos
+- fallback sem IA com resumo e citações das notas
 
 Entrada padrão:
 
@@ -106,7 +106,7 @@ Fluxo operacional:
 - adapter baixa mídia se existir
 - CLI de conversa interpreta o texto com OpenRouter
 - o core pergunta só o que falta
-- ao confirmar, o core gera o payload canônico e persiste no vault
+- ao confirmar, o core gera o payload canonico e persiste em Postgres
 
 ### Git push do usuário
 
@@ -115,7 +115,7 @@ Recomendação para vender o produto:
 1. Criar um **GitHub App** do produto.
 2. Cada cliente instala o app nos repositórios desejados.
 3. O GitHub envia `push` para o endpoint `kb-github-push`.
-4. O core coleta diff/commits, gera o review por IA, salva no Obsidian e retorna uma mensagem pronta para Telegram.
+4. O core coleta diff/commits, gera o review por IA, salva a nota em Postgres e retorna uma mensagem pronta para Telegram.
 5. O adapter envia o review resumido no Telegram.
 
 Isso é melhor do que pedir token manual por repositório porque:
@@ -157,7 +157,7 @@ Todos os segredos relevantes ficam em `.env` na VPS e nunca no GitHub:
 - GitHub token de leitura
 - Telegram bot token/chat
 - Evolution API key
-- vault remote URL e credenciais de push
+- URL publica, secrets de assinatura, banco Postgres e credenciais criptografadas de providers
 
 Os workflows do n8n devem usar apenas `{{$env.*}}` para segredos.
 
@@ -167,15 +167,25 @@ O backend usa login local com `kb_users`, senha via `crypto.scrypt` e JWT statel
 
 - `kb_access_token`: access token curto
 - `kb_refresh_token`: refresh token longo
+- `POST /api/auth/signup`: cria usuario com `email`, `password` e `name`
 - `POST /api/auth/logout` limpa cookies, sem denylist server-side
 
-O admin inicial é criado por `KB_ADMIN_EMAIL` e `KB_ADMIN_PASSWORD`. Configure também `KB_DATABASE_URL`, `KB_JWT_ACCESS_SECRET`, `KB_JWT_REFRESH_SECRET`, `KB_CREDENTIALS_ENCRYPTION_KEY` (base64 de 32 bytes) e `KB_INTERNAL_SERVICE_TOKEN`.
+O admin inicial é criado por `KB_ADMIN_EMAIL` e `KB_ADMIN_PASSWORD`. Configure também `KB_DATABASE_URL`, `KB_JWT_ACCESS_SECRET`, `KB_JWT_REFRESH_SECRET`, `KB_CREDENTIALS_ENCRYPTION_KEY` (base64 de 32 bytes), `KB_INTERNAL_SERVICE_TOKEN`, `KB_ALLOWED_ORIGINS`, `KB_BODY_LIMIT` e `KB_TRUST_PROXY` quando estiver atrás de proxy.
 
-O frontend expõe `/settings/integrations` para salvar, mascarar e revogar credenciais por `user + workspace + provider`. Segredos são gravados em `kb_integration_credentials.encrypted_config` com AES-256-GCM e nunca são retornados nas respostas do navegador.
+Postgres é a fonte de dados da API HTTP multiusuário. Usuários novos começam sem workspaces, projetos ou notas; esses registros são criados quando o usuário configura integrações ou quando uma ingestão autenticada/webhook resolvido grava dados. As tabelas principais são `kb_users`, `kb_workspaces`, `kb_projects`, `kb_notes`, `kb_note_links`, `kb_attachments`, `kb_external_identities`, `kb_integration_credentials` e `kb_webhook_events`.
+
+O frontend expõe `/settings/integrations` para salvar, mascarar e revogar credenciais por `user + workspace + provider`. Segredos são gravados em `kb_integration_credentials.encrypted_config` com AES-256-GCM e nunca são retornados nas respostas do navegador. Ao revogar uma credencial, o backend substitui o payload criptografado por um marcador sem segredo e mantém apenas o status/histórico de revogação.
+
+O payload de credenciais é validado com Zod. `config` aceita apenas objetos não vazios com valores primitivos, `publicMetadata` aceita somente campos públicos conhecidos como `label`, e identidades externas só podem ser vinculadas aos providers permitidos (`telegram`, `whatsapp`, `github` ou `github-app`) sem reassociar uma identidade que já pertença a outro usuário.
+
+Webhooks externos nunca usam `userId` vindo do payload. O fluxo aceito é: validar assinatura/token do provider, extrair identidade externa confiavel, buscar `kb_external_identities`, resolver `user_id` e gravar somente para esse usuario. Eventos brutos sao registrados em `kb_webhook_events` como `rejected`, `resolved`, `processed` ou `failed`. Para GitHub, o modelo principal é GitHub App com `X-Hub-Signature-256` e `installation.id` vinculado como `provider=github-app`, `identityType=installation_id`.
+
+Auth e webhooks têm rate limit em memoria por IP. O parser HTTP usa limite explicito de body e preserva `rawBody` para validar assinatura de provider.
 
 Endpoints principais:
 
 - `POST /api/auth/login`
+- `POST /api/auth/signup`
 - `POST /api/auth/refresh`
 - `POST /api/auth/logout`
 - `GET /api/auth/me`
@@ -195,6 +205,8 @@ Endpoints mutáveis de navegador validam `Origin`/`Referer`. A API interna exige
 - `dist/cli/query.js`
 - `dist/cli/reminders.js`
 - `dist/cli/batch-flush.js`
+
+Observacao: a API do produto nao usa filesystem/vault como persistencia. CLIs antigos que ainda escrevem markdown existem apenas como adapters/rotinas legadas ate serem removidos ou reimplementados sobre os mesmos services Postgres da API.
 
 ## Build e testes
 

@@ -65,6 +65,24 @@ test('login creates HttpOnly cookies and does not return tokens in JSON', async 
   assert.equal(response.cookies.every((cookie) => cookie.options.sameSite === 'lax'), true);
 });
 
+test('signup creates a user and HttpOnly cookies', async () => {
+  const { auth, store } = await fixture();
+  const controller = new AuthController(auth);
+  const response = responseMock();
+
+  const result = await controller.signup(
+    { name: 'New User', email: 'new@example.com', password: 'new-password' },
+    { headers: { origin: 'https://kb.example.com', host: 'kb.example.com' }, protocol: 'https' },
+    response,
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(result.user.email, 'new@example.com');
+  assert.equal(result.user.displayName, 'New User');
+  assert.ok(await store.findUserByEmail('new@example.com'));
+  assert.deepEqual(response.cookies.map((cookie) => cookie.name), ['kb_access_token', 'kb_refresh_token']);
+});
+
 test('refresh issues a new access cookie and logout clears browser cookies', async () => {
   const { auth } = await fixture();
   const controller = new AuthController(auth);
@@ -123,6 +141,7 @@ test('credentials are encrypted, masked in user responses, and resolved internal
       publicMetadata: { label: 'ops bot' },
       externalIdentities: [{ provider: 'telegram', externalId: '123' }],
     },
+    login.user,
     request,
   );
 
@@ -143,14 +162,93 @@ test('credentials are encrypted, masked in user responses, and resolved internal
 
   const resolvedByIdentity = await internalController.resolve(
     'telegram',
-    { workspaceSlug: 'default', externalIdentity: { provider: 'telegram', externalId: '123' } },
+    { workspaceSlug: 'default', externalIdentity: { provider: 'telegram', identityType: 'chat_id', externalId: '123' } },
     { headers: { authorization: 'Bearer internal-token' } },
   );
   assert.equal(resolvedByIdentity.userId, login.user.id);
 
-  const listed = await userController.list(request, 'default');
+  const listed = await userController.list(login.user, request, 'default');
   assert.equal(JSON.stringify(listed).includes('telegram-secret-value'), false);
 
-  const revoked = await userController.revoke('telegram', 'default', request);
+  const revoked = await userController.revoke('telegram', 'default', login.user, request);
   assert.equal(revoked.integration.status, 'revoked');
+  const revokedStored = await store.findCredential(login.user.id, 'default', 'telegram');
+  assert.equal(JSON.stringify(revokedStored.encryptedConfig).includes('telegram-secret-value'), false);
+});
+
+test('credential payload validation rejects secret-like public metadata and identity hijacking', async () => {
+  const first = await fixture();
+  const firstAuthController = new AuthController(first.auth);
+  const firstUserController = new UserIntegrationsController(first.auth, first.credentials);
+  const firstLoginResponse = responseMock();
+  const firstLogin = await firstAuthController.login(
+    { email: 'admin@example.com', password: 'admin-password' },
+    { headers: { origin: 'https://kb.example.com', host: 'kb.example.com' }, protocol: 'https' },
+    firstLoginResponse,
+  );
+  const firstAccessToken = firstLoginResponse.cookies.find((cookie) => cookie.name === 'kb_access_token').value;
+  const firstRequest = { headers: { origin: 'https://kb.example.com', host: 'kb.example.com', cookie: `kb_access_token=${firstAccessToken}` }, protocol: 'https' };
+
+  await assert.rejects(
+    () => firstUserController.save(
+      'telegram',
+      {
+        workspaceSlug: 'default',
+        config: { botToken: 'secret', chatId: '123' },
+        publicMetadata: { label: 'ops bot', apiKey: 'must-not-be-public' },
+      },
+      firstLogin.user,
+      firstRequest,
+    ),
+    /invalid_integration_credential_payload/,
+  );
+
+  await firstUserController.save(
+    'telegram',
+    {
+      workspaceSlug: 'default',
+      config: { botToken: 'secret', chatId: '123' },
+      publicMetadata: { label: 'ops bot' },
+      externalIdentities: [{ provider: 'telegram', externalId: '123' }],
+    },
+    firstLogin.user,
+    firstRequest,
+  );
+
+  await assert.rejects(
+    () => firstUserController.save(
+      'ai-review',
+      {
+        workspaceSlug: 'default',
+        config: { apiKey: 'secret', model: 'review-model' },
+        publicMetadata: { label: 'review' },
+        externalIdentities: [{ provider: 'telegram', externalId: '456' }],
+      },
+      firstLogin.user,
+      firstRequest,
+    ),
+    /external_identity_not_allowed_for_provider/,
+  );
+
+  const secondStore = first.store;
+  const secondAuth = new AuthService(secondStore);
+  const secondCredentials = new IntegrationCredentialService(secondStore);
+  const secondUser = await secondStore.createUser({ email: 'user@example.com', passwordHash: firstLogin.user.id, role: 'user' });
+  const secondController = new UserIntegrationsController(secondAuth, secondCredentials);
+  const secondToken = secondAuth.issueTokens(secondUser).accessToken;
+
+  await assert.rejects(
+    () => secondController.save(
+      'telegram',
+      {
+        workspaceSlug: 'default',
+        config: { botToken: 'other-secret', chatId: '123' },
+        publicMetadata: { label: 'other bot' },
+        externalIdentities: [{ provider: 'telegram', externalId: '123' }],
+      },
+      { id: secondUser.id, email: secondUser.email, displayName: secondUser.displayName, role: secondUser.role },
+      { headers: { origin: 'https://kb.example.com', host: 'kb.example.com', cookie: `kb_access_token=${secondToken}` }, protocol: 'https' },
+    ),
+    /external_identity_already_bound/,
+  );
 });

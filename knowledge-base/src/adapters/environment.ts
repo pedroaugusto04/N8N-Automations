@@ -27,6 +27,8 @@ export type RuntimeEnvironment = {
   gitPushToken: string;
   allowedGroupId: string;
   publicBaseUrl: string;
+  allowedOrigins: string[];
+  trustProxy: boolean;
   githubPushWebhookPath: string;
   ingestWebhookPath: string;
   whatsappWebhookPath: string;
@@ -80,6 +82,11 @@ export function readEnvironment(env = process.env): RuntimeEnvironment {
     gitPushToken: String(env.KB_VAULT_GIT_PUSH_TOKEN || '').trim(),
     allowedGroupId: String(env.WPP_KB_GROUP_JID || '').trim(),
     publicBaseUrl: String(env.KB_PUBLIC_BASE_URL || env.WEBHOOK_URL || '').trim().replace(/\/$/, ''),
+    allowedOrigins: String(env.KB_ALLOWED_ORIGINS || '')
+      .split(',')
+      .map((origin) => origin.trim().replace(/\/$/, ''))
+      .filter(Boolean),
+    trustProxy: String(env.KB_TRUST_PROXY || 'false').toLowerCase() === 'true',
     githubPushWebhookPath: String(env.KB_GITHUB_WEBHOOK_PATH || '/n8n/webhook/kb-github-push').trim(),
     ingestWebhookPath: String(env.KB_INGEST_WEBHOOK_PATH || '/n8n/webhook/kb-event').trim(),
     whatsappWebhookPath: String(env.KB_WPP_WEBHOOK_PATH || '/n8n/webhook/whatsapp-kb-event').trim(),

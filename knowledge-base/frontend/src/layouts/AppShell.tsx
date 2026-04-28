@@ -1,10 +1,10 @@
-import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { FormEvent, useMemo, useState } from 'react';
 import { NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 
 import type { PageContext } from '../app/page-context';
 import { navItems, routes, type View } from '../app/routing/routes';
-import { fetchDashboard } from '../shared/api/client';
+import { fetchDashboard, login, logout, signup } from '../shared/api/client';
 import { HomePage } from '../pages/home/HomePage';
 import { IntegrationsPage } from '../pages/integrations/IntegrationsPage';
 import { ProjectsPage } from '../pages/projects/ProjectsPage';
@@ -31,6 +31,7 @@ function routeParam(pathname: string, prefix: string) {
 }
 
 export function AppShell() {
+  const queryClient = useQueryClient();
   const dashboardQuery = useQuery({ queryKey: ['dashboard'], queryFn: fetchDashboard });
   const dashboard = dashboardQuery.data;
   const navigate = useNavigate();
@@ -70,6 +71,10 @@ export function AppShell() {
       },
     };
   }, [dashboard, navigate, routeNoteId, routeProject, routeReviewId, selectedNoteId, selectedProject, selectedReviewId]);
+
+  if (dashboardQuery.error instanceof Error && dashboardQuery.error.message === 'request_failed:401') {
+    return <AuthScreen onAuthenticated={() => dashboardQuery.refetch()} />;
+  }
 
   if (!dashboard || !pageContext) return <div className="boot-state">Carregando Knowledge Vault...</div>;
 
@@ -122,7 +127,18 @@ export function AppShell() {
           </label>
           <div className="topbar-meta">
             <span>{dashboard.notes.length} docs</span>
-            <span>sync local</span>
+            <button
+              className="topbar-link"
+              type="button"
+              onClick={() => {
+                logout().finally(() => {
+                  queryClient.clear();
+                  dashboardQuery.refetch();
+                });
+              }}
+            >
+              sair
+            </button>
           </div>
         </header>
         <section className="view" aria-live="polite">
@@ -151,5 +167,63 @@ export function AppShell() {
         />
       </aside>
     </div>
+  );
+}
+
+function AuthScreen({ onAuthenticated }: { onAuthenticated: () => void }) {
+  const [mode, setMode] = useState<'login' | 'signup'>('login');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const mutation = useMutation({
+    mutationFn: () => (mode === 'login' ? login({ email, password }) : signup({ name, email, password })),
+    onSuccess: onAuthenticated,
+  });
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    mutation.mutate();
+  }
+
+  return (
+    <main className="auth-layout">
+      <section className="auth-panel" aria-label="Autenticacao">
+        <div className="brand auth-brand">
+          <div className="brand-mark">KV</div>
+          <div>
+            <strong>Knowledge Vault</strong>
+            <span>developer knowledge base</span>
+          </div>
+        </div>
+        <div className="segmented-control" role="tablist" aria-label="Modo de acesso">
+          <button className={mode === 'login' ? 'active' : ''} type="button" onClick={() => setMode('login')}>
+            Entrar
+          </button>
+          <button className={mode === 'signup' ? 'active' : ''} type="button" onClick={() => setMode('signup')}>
+            Criar conta
+          </button>
+        </div>
+        <form className="auth-form" onSubmit={submit}>
+          {mode === 'signup' ? (
+            <label className="form-field">
+              Nome
+              <input autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} required />
+            </label>
+          ) : null}
+          <label className="form-field">
+            Email
+            <input autoComplete="email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
+          </label>
+          <label className="form-field">
+            Senha
+            <input autoComplete={mode === 'login' ? 'current-password' : 'new-password'} type="password" minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} required />
+          </label>
+          {mutation.isError ? <p className="form-error">Nao foi possivel autenticar com esses dados.</p> : null}
+          <button className="icon-button auth-submit" type="submit" disabled={mutation.isPending}>
+            {mode === 'login' ? 'Entrar' : 'Criar conta'}
+          </button>
+        </form>
+      </section>
+    </main>
   );
 }

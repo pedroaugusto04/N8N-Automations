@@ -3,7 +3,7 @@ import { Injectable } from '@nestjs/common';
 import { readEnvironment, type RuntimeEnvironment } from '../adapters/environment.js';
 import type { Project } from '../domain/projects.js';
 import type { Workspace } from '../domain/workspaces.js';
-import { ProjectRepository, WorkspaceRepository } from './ports/repositories.js';
+import { ContentRepository } from './ports/repositories.js';
 
 export type IntegrationStatusValue = 'connected' | 'partial' | 'missing';
 
@@ -132,15 +132,6 @@ export function buildIntegrationStatuses(input: {
   };
   const aiFlags = [reviewAiActive || conversationAiActive, ...Object.values(aiEnv)];
 
-  const vaultEnv = {
-    KB_VAULT_PATH: Boolean(environment.vaultPath),
-    KB_ENABLE_GIT_PUSH: environment.enableGitPush,
-    KB_VAULT_REMOTE_URL: Boolean(environment.vaultRemoteUrl),
-    KB_VAULT_GIT_PUSH_USERNAME: Boolean(environment.gitPushUsername),
-    KB_VAULT_GIT_PUSH_TOKEN: secretConfigured(environment.gitPushToken),
-  };
-  const vaultRemoteReady = environment.enableGitPush && Boolean(environment.vaultRemoteUrl && environment.gitPushUsername && environment.gitPushToken);
-
   return {
     ok: true,
     workspaceSlug,
@@ -242,40 +233,16 @@ export function buildIntegrationStatuses(input: {
           conversationAiActive && !environment.conversationAiApiKey ? 'Conversation AI ativo sem API key.' : '',
         ].filter(Boolean),
       },
-      {
-        id: 'vault-git',
-        name: 'Vault Git',
-        description: 'Caminho local do vault e sincronizacao remota opcional por Git.',
-        status: environment.vaultPath && vaultRemoteReady ? 'connected' : environment.vaultPath ? 'partial' : 'missing',
-        requiredEnv: Object.keys(vaultEnv),
-        configuredEnv: configuredEnv(vaultEnv),
-        missingEnv: missingEnv(vaultEnv),
-        links: [],
-        checklist: [
-          'Montar KB_VAULT_PATH no ambiente de execucao.',
-          'Habilitar KB_ENABLE_GIT_PUSH somente quando o remote estiver pronto.',
-          'Configurar remote, usuario e token para push automatico.',
-        ],
-        warnings: [
-          !environment.vaultPath ? 'KB_VAULT_PATH ausente.' : '',
-          !environment.enableGitPush ? 'Push remoto desabilitado; sync fica manual/local.' : '',
-          environment.enableGitPush && !environment.vaultRemoteUrl ? 'Push habilitado sem remote do vault.' : '',
-          environment.enableGitPush && !environment.gitPushToken ? 'Push habilitado sem token de Git.' : '',
-        ].filter(Boolean),
-      },
     ],
   };
 }
 
 @Injectable()
 export class BuildIntegrationsUseCase {
-  constructor(
-    private readonly projectRepository: ProjectRepository,
-    private readonly workspaceRepository: WorkspaceRepository,
-  ) {}
+  constructor(private readonly contentRepository: ContentRepository) {}
 
-  async execute() {
-    const [workspaces, projects] = await Promise.all([this.workspaceRepository.list(), this.projectRepository.list()]);
+  async execute(userId = '') {
+    const [workspaces, projects] = await Promise.all([this.contentRepository.listWorkspaces(userId), this.contentRepository.listProjects(userId)]);
     return buildIntegrationStatuses({ environment: readEnvironment(), workspaces, projects });
   }
 }

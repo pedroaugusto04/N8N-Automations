@@ -4,58 +4,26 @@ import { Injectable } from '@nestjs/common';
 import pg from 'pg';
 
 import { readEnvironment } from '../../adapters/environment.js';
+import { KnowledgeStore } from '../../application/knowledge-store.js';
+import type {
+  ExternalIdentityRecord,
+  IntegrationCredentialRecord,
+  NoteRecord,
+  ProjectRecord,
+  WebhookEventRecord,
+  WorkspaceRecord,
+} from '../../application/models/repository-records.models.js';
 import {
-  KnowledgeStore,
-  type ExternalIdentityRecord,
-  type IntegrationCredentialRecord,
-  type KbUser,
-} from '../../application/knowledge-store.js';
+  credentialFromRow,
+  identityFromRow,
+  noteFromRow,
+  projectFromRow,
+  userFromRow,
+  webhookEventFromRow,
+  workspaceFromRow,
+} from './postgres-row.mappers.js';
 
 const { Pool } = pg;
-
-type Row = Record<string, unknown>;
-
-function nowIso(value: unknown): string {
-  return value instanceof Date ? value.toISOString() : String(value || new Date().toISOString());
-}
-
-function userFromRow(row: Row): KbUser {
-  return {
-    id: String(row.id),
-    email: String(row.email),
-    passwordHash: String(row.password_hash),
-    role: String(row.role),
-    createdAt: nowIso(row.created_at),
-    updatedAt: nowIso(row.updated_at),
-  };
-}
-
-function credentialFromRow(row: Row): IntegrationCredentialRecord {
-  return {
-    id: String(row.id),
-    userId: String(row.user_id),
-    workspaceSlug: String(row.workspace_slug),
-    provider: String(row.provider),
-    status: String(row.status) === 'revoked' ? 'revoked' : 'connected',
-    encryptedConfig: row.encrypted_config,
-    publicMetadata: (row.public_metadata || {}) as Record<string, unknown>,
-    createdAt: nowIso(row.created_at),
-    updatedAt: nowIso(row.updated_at),
-    revokedAt: row.revoked_at ? nowIso(row.revoked_at) : null,
-  };
-}
-
-function identityFromRow(row: Row): ExternalIdentityRecord {
-  return {
-    id: String(row.id),
-    userId: String(row.user_id),
-    provider: String(row.provider),
-    externalId: String(row.external_id),
-    publicMetadata: (row.public_metadata || {}) as Record<string, unknown>,
-    createdAt: nowIso(row.created_at),
-    updatedAt: nowIso(row.updated_at),
-  };
-}
 
 @Injectable()
 export class PostgresKnowledgeStore extends KnowledgeStore {
@@ -75,11 +43,13 @@ export class PostgresKnowledgeStore extends KnowledgeStore {
       create table if not exists kb_users (
         id uuid primary key,
         email text not null,
+        display_name text not null default '',
         password_hash text not null,
         role text not null default 'user',
         created_at timestamptz not null default now(),
         updated_at timestamptz not null default now()
       );
+      alter table kb_users add column if not exists display_name text not null default '';
       create unique index if not exists kb_users_email_lower_idx on kb_users (lower(email));
 
       create table if not exists kb_integration_credentials (
@@ -100,14 +70,118 @@ export class PostgresKnowledgeStore extends KnowledgeStore {
       create table if not exists kb_external_identities (
         id uuid primary key,
         user_id uuid not null references kb_users(id) on delete cascade,
+        workspace_slug text not null default 'default',
         provider text not null,
+        identity_type text not null default 'external_id',
         external_id text not null,
+        credential_id uuid references kb_integration_credentials(id) on delete set null,
+        verified_at timestamptz,
+        metadata jsonb not null default '{}'::jsonb,
         public_metadata jsonb not null default '{}'::jsonb,
         created_at timestamptz not null default now(),
         updated_at timestamptz not null default now()
       );
-      create unique index if not exists kb_external_identities_provider_external_idx
-        on kb_external_identities (provider, external_id);
+      alter table kb_external_identities add column if not exists workspace_slug text not null default 'default';
+      alter table kb_external_identities add column if not exists identity_type text not null default 'external_id';
+      alter table kb_external_identities add column if not exists credential_id uuid references kb_integration_credentials(id) on delete set null;
+      alter table kb_external_identities add column if not exists verified_at timestamptz;
+      alter table kb_external_identities add column if not exists metadata jsonb not null default '{}'::jsonb;
+      drop index if exists kb_external_identities_provider_external_idx;
+      create unique index if not exists kb_external_identities_provider_type_external_idx
+        on kb_external_identities (provider, identity_type, external_id);
+
+      create table if not exists kb_workspaces (
+        id uuid primary key,
+        user_id uuid not null references kb_users(id) on delete cascade,
+        workspace_slug text not null,
+        display_name text not null,
+        whatsapp_group_jid text not null default '',
+        telegram_chat_id text not null default '',
+        github_repos jsonb not null default '[]'::jsonb,
+        project_slugs jsonb not null default '[]'::jsonb,
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      );
+      create unique index if not exists kb_workspaces_user_slug_idx on kb_workspaces (user_id, workspace_slug);
+
+      create table if not exists kb_projects (
+        id uuid primary key,
+        user_id uuid not null references kb_users(id) on delete cascade,
+        project_slug text not null,
+        display_name text not null,
+        repo_full_name text not null default '',
+        workspace_slug text not null default '',
+        aliases jsonb not null default '[]'::jsonb,
+        default_tags jsonb not null default '[]'::jsonb,
+        enabled boolean not null default true,
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      );
+      create unique index if not exists kb_projects_user_slug_idx on kb_projects (user_id, project_slug);
+
+      create table if not exists kb_notes (
+        id uuid primary key,
+        user_id uuid not null references kb_users(id) on delete cascade,
+        path text not null,
+        type text not null,
+        title text not null,
+        project_slug text not null,
+        workspace_slug text not null default '',
+        status text not null default 'active',
+        tags jsonb not null default '[]'::jsonb,
+        occurred_at text not null default '',
+        source_channel text not null default '',
+        summary text not null default '',
+        markdown text not null default '',
+        frontmatter jsonb not null default '{}'::jsonb,
+        metadata jsonb not null default '{}'::jsonb,
+        origin text not null default 'postgres',
+        source text not null default '',
+        links jsonb not null default '[]'::jsonb,
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      );
+      create unique index if not exists kb_notes_user_path_idx on kb_notes (user_id, path);
+      create index if not exists kb_notes_user_project_idx on kb_notes (user_id, project_slug);
+      create index if not exists kb_notes_user_workspace_idx on kb_notes (user_id, workspace_slug);
+
+      create table if not exists kb_note_links (
+        id uuid primary key,
+        user_id uuid not null references kb_users(id) on delete cascade,
+        note_id uuid not null references kb_notes(id) on delete cascade,
+        target text not null,
+        metadata jsonb not null default '{}'::jsonb,
+        created_at timestamptz not null default now()
+      );
+      create index if not exists kb_note_links_user_note_idx on kb_note_links (user_id, note_id);
+
+      create table if not exists kb_attachments (
+        id uuid primary key,
+        user_id uuid not null references kb_users(id) on delete cascade,
+        note_id uuid references kb_notes(id) on delete cascade,
+        file_name text not null,
+        mime_type text not null default 'application/octet-stream',
+        size_bytes bigint not null default 0,
+        storage_key text not null default '',
+        metadata jsonb not null default '{}'::jsonb,
+        created_at timestamptz not null default now()
+      );
+      create index if not exists kb_attachments_user_note_idx on kb_attachments (user_id, note_id);
+
+      create table if not exists kb_webhook_events (
+        id uuid primary key,
+        provider text not null,
+        event_type text not null default '',
+        status text not null,
+        resolved_user_id uuid references kb_users(id) on delete set null,
+        external_identity jsonb not null default '{}'::jsonb,
+        raw_headers jsonb not null default '{}'::jsonb,
+        raw_payload jsonb not null default '{}'::jsonb,
+        error text not null default '',
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      );
+      create index if not exists kb_webhook_events_provider_status_idx on kb_webhook_events (provider, status, created_at desc);
     `);
   }
 
@@ -121,12 +195,18 @@ export class PostgresKnowledgeStore extends KnowledgeStore {
     return result.rows[0] ? userFromRow(result.rows[0]) : null;
   }
 
-  async createUser(input: { email: string; passwordHash: string; role: string }) {
+  async createUser(input: { email: string; displayName?: string; passwordHash: string; role: string }) {
     const result = await this.getPool().query(
-      `insert into kb_users (id, email, password_hash, role)
-       values ($1, $2, $3, $4)
+      `insert into kb_users (id, email, display_name, password_hash, role)
+       values ($1, $2, $3, $4, $5)
        returning *`,
-      [crypto.randomUUID(), input.email.trim().toLowerCase(), input.passwordHash, input.role],
+      [
+        crypto.randomUUID(),
+        input.email.trim().toLowerCase(),
+        String(input.displayName || input.email.split('@')[0] || 'User').trim(),
+        input.passwordHash,
+        input.role,
+      ],
     );
     return userFromRow(result.rows[0]);
   }
@@ -164,13 +244,13 @@ export class PostgresKnowledgeStore extends KnowledgeStore {
     return credentialFromRow(result.rows[0]);
   }
 
-  async revokeCredential(userId: string, workspaceSlug: string, provider: string) {
+  async revokeCredential(userId: string, workspaceSlug: string, provider: string, encryptedConfig: unknown) {
     const result = await this.getPool().query(
       `update kb_integration_credentials
-       set status = 'revoked', revoked_at = now(), updated_at = now()
+       set status = 'revoked', encrypted_config = $4::jsonb, revoked_at = now(), updated_at = now()
        where user_id = $1 and workspace_slug = $2 and provider = $3
        returning *`,
-      [userId, workspaceSlug, provider],
+      [userId, workspaceSlug, provider, JSON.stringify(encryptedConfig)],
     );
     return result.rows[0] ? credentialFromRow(result.rows[0]) : null;
   }
@@ -183,23 +263,206 @@ export class PostgresKnowledgeStore extends KnowledgeStore {
     return result.rows[0] ? credentialFromRow(result.rows[0]) : null;
   }
 
-  async findExternalIdentity(provider: string, externalId: string) {
+  async findExternalIdentity(provider: string, identityType: string, externalId: string) {
     const result = await this.getPool().query(
-      'select * from kb_external_identities where provider = $1 and external_id = $2 limit 1',
-      [provider, externalId],
+      'select * from kb_external_identities where provider = $1 and identity_type = $2 and external_id = $3 limit 1',
+      [provider, identityType, externalId],
     );
     return result.rows[0] ? identityFromRow(result.rows[0]) : null;
   }
 
-  async upsertExternalIdentity(input: { userId: string; provider: string; externalId: string; publicMetadata: Record<string, unknown> }) {
+  async upsertExternalIdentity(input: {
+    userId: string;
+    workspaceSlug: string;
+    provider: string;
+    identityType: string;
+    externalId: string;
+    credentialId?: string | null;
+    verifiedAt?: string | null;
+    metadata?: Record<string, unknown>;
+    publicMetadata: Record<string, unknown>;
+  }) {
     const result = await this.getPool().query(
-      `insert into kb_external_identities (id, user_id, provider, external_id, public_metadata)
-       values ($1, $2, $3, $4, $5::jsonb)
-       on conflict (provider, external_id)
-       do update set user_id = excluded.user_id, public_metadata = excluded.public_metadata, updated_at = now()
+      `insert into kb_external_identities (id, user_id, workspace_slug, provider, identity_type, external_id, credential_id, verified_at, metadata, public_metadata)
+       values ($1, $2, $3, $4, $5, $6, $7, coalesce($8::timestamptz, now()), $9::jsonb, $10::jsonb)
+       on conflict (provider, identity_type, external_id)
+       do update set
+         user_id = excluded.user_id,
+         workspace_slug = excluded.workspace_slug,
+         credential_id = excluded.credential_id,
+         verified_at = excluded.verified_at,
+         metadata = excluded.metadata,
+         public_metadata = excluded.public_metadata,
+         updated_at = now()
        returning *`,
-      [crypto.randomUUID(), input.userId, input.provider, input.externalId, JSON.stringify(input.publicMetadata)],
+      [
+        crypto.randomUUID(),
+        input.userId,
+        input.workspaceSlug,
+        input.provider,
+        input.identityType,
+        input.externalId,
+        input.credentialId || null,
+        input.verifiedAt || null,
+        JSON.stringify(input.metadata || {}),
+        JSON.stringify(input.publicMetadata),
+      ],
     );
     return identityFromRow(result.rows[0]);
+  }
+
+  async listWorkspaces(userId: string) {
+    const result = await this.getPool().query('select * from kb_workspaces where user_id = $1 order by workspace_slug', [userId]);
+    return result.rows.map(workspaceFromRow);
+  }
+
+  async upsertWorkspace(userId: string, input: WorkspaceRecord) {
+    const result = await this.getPool().query(
+      `insert into kb_workspaces (id, user_id, workspace_slug, display_name, whatsapp_group_jid, telegram_chat_id, github_repos, project_slugs)
+       values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb)
+       on conflict (user_id, workspace_slug)
+       do update set
+         display_name = excluded.display_name,
+         whatsapp_group_jid = excluded.whatsapp_group_jid,
+         telegram_chat_id = excluded.telegram_chat_id,
+         github_repos = excluded.github_repos,
+         project_slugs = excluded.project_slugs,
+         updated_at = now()
+       returning *`,
+      [
+        crypto.randomUUID(),
+        userId,
+        input.workspaceSlug,
+        input.displayName,
+        input.whatsappGroupJid,
+        input.telegramChatId,
+        JSON.stringify(input.githubRepos),
+        JSON.stringify(input.projectSlugs),
+      ],
+    );
+    return workspaceFromRow(result.rows[0]);
+  }
+
+  async listProjects(userId: string) {
+    const result = await this.getPool().query('select * from kb_projects where user_id = $1 and enabled = true order by project_slug', [userId]);
+    return result.rows.map(projectFromRow);
+  }
+
+  async upsertProject(userId: string, input: ProjectRecord) {
+    const result = await this.getPool().query(
+      `insert into kb_projects (id, user_id, project_slug, display_name, repo_full_name, workspace_slug, aliases, default_tags, enabled)
+       values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9)
+       on conflict (user_id, project_slug)
+       do update set
+         display_name = excluded.display_name,
+         repo_full_name = excluded.repo_full_name,
+         workspace_slug = excluded.workspace_slug,
+         aliases = excluded.aliases,
+         default_tags = excluded.default_tags,
+         enabled = excluded.enabled,
+         updated_at = now()
+       returning *`,
+      [
+        crypto.randomUUID(),
+        userId,
+        input.projectSlug,
+        input.displayName,
+        input.repoFullName,
+        input.workspaceSlug,
+        JSON.stringify(input.aliases),
+        JSON.stringify(input.defaultTags),
+        input.enabled,
+      ],
+    );
+    return projectFromRow(result.rows[0]);
+  }
+
+  async listNotes(userId: string) {
+    const result = await this.getPool().query('select * from kb_notes where user_id = $1 order by occurred_at desc, title asc', [userId]);
+    return result.rows.map(noteFromRow);
+  }
+
+  async getNoteById(userId: string, id: string) {
+    const result = await this.getPool().query('select * from kb_notes where user_id = $1 and id = $2 limit 1', [userId, id]);
+    return result.rows[0] ? noteFromRow(result.rows[0]) : null;
+  }
+
+  async upsertNote(userId: string, input: Omit<NoteRecord, 'id'> & { id?: string }) {
+    const result = await this.getPool().query(
+      `insert into kb_notes (
+         id, user_id, path, type, title, project_slug, workspace_slug, status, tags, occurred_at,
+         source_channel, summary, markdown, frontmatter, metadata, origin, source, links
+       )
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13, $14::jsonb, $15::jsonb, $16, $17, $18::jsonb)
+       on conflict (user_id, path)
+       do update set
+         type = excluded.type,
+         title = excluded.title,
+         project_slug = excluded.project_slug,
+         workspace_slug = excluded.workspace_slug,
+         status = excluded.status,
+         tags = excluded.tags,
+         occurred_at = excluded.occurred_at,
+         source_channel = excluded.source_channel,
+         summary = excluded.summary,
+         markdown = excluded.markdown,
+         frontmatter = excluded.frontmatter,
+         metadata = excluded.metadata,
+         origin = excluded.origin,
+         source = excluded.source,
+         links = excluded.links,
+         updated_at = now()
+       returning *`,
+      [
+        input.id || crypto.randomUUID(),
+        userId,
+        input.path,
+        input.type,
+        input.title,
+        input.projectSlug,
+        input.workspaceSlug,
+        input.status,
+        JSON.stringify(input.tags),
+        input.occurredAt,
+        input.sourceChannel,
+        input.summary,
+        input.markdown,
+        JSON.stringify(input.frontmatter),
+        JSON.stringify(input.metadata),
+        input.origin,
+        input.source,
+        JSON.stringify(input.links),
+      ],
+    );
+    return noteFromRow(result.rows[0]);
+  }
+
+  async recordWebhookEvent(input: {
+    provider: string;
+    eventType: string;
+    status: WebhookEventRecord['status'];
+    resolvedUserId?: string | null;
+    externalIdentity?: Record<string, unknown>;
+    rawHeaders?: Record<string, unknown>;
+    rawPayload?: unknown;
+    error?: string;
+  }) {
+    const result = await this.getPool().query(
+      `insert into kb_webhook_events (id, provider, event_type, status, resolved_user_id, external_identity, raw_headers, raw_payload, error)
+       values ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9)
+       returning *`,
+      [
+        crypto.randomUUID(),
+        input.provider,
+        input.eventType,
+        input.status,
+        input.resolvedUserId || null,
+        JSON.stringify(input.externalIdentity || {}),
+        JSON.stringify(input.rawHeaders || {}),
+        JSON.stringify(input.rawPayload || {}),
+        input.error || '',
+      ],
+    );
+    return webhookEventFromRow(result.rows[0]);
   }
 }

@@ -206,4 +206,30 @@ describe('AppShell', () => {
     expect(await screen.findByText('KB_TELEGRAM_BOT_TOKEN')).toBeInTheDocument();
     expect(await screen.findByText('Criar ou reutilizar um bot do Telegram.')).toBeInTheDocument();
   });
+
+  it('shows login for anonymous users and loads the dashboard after auth', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/dashboard' && fetchMock.mock.calls.length === 1) {
+        return new Response(null, { status: 401 });
+      }
+      if (url === '/api/auth/login') {
+        return Response.json({ ok: true, user: { id: 'user-1', email: 'user@example.com', displayName: 'User', role: 'user' } });
+      }
+      if (url === '/api/dashboard') {
+        return Response.json(dashboard);
+      }
+      return new Response(null, { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderWithAppProviders(<AppShell />);
+
+    expect((await screen.findAllByRole('button', { name: 'Entrar' })).length).toBeGreaterThan(0);
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'user@example.com' } });
+    fireEvent.change(screen.getByLabelText('Senha'), { target: { value: 'password123' } });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Entrar' }).at(-1)!);
+
+    expect(await screen.findByRole('heading', { name: 'Home operacional' })).toBeInTheDocument();
+  });
 });
