@@ -9,12 +9,28 @@ REMOTE_IMPORT_DIR="/tmp/n8n-import-$(date +%s)"
 
 WORKFLOW_FILES=()
 
-while IFS= read -r -d '' file; do
+is_workflow_file() {
+  local file="$1"
+
+  # Accept single workflow object: { nodes: [], connections: {} }
   if jq -e '
     type == "object"
     and (.nodes | type == "array")
     and (.connections | type == "object")
   ' "$file" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  # Accept export arrays containing one or more workflow objects.
+  jq -e '
+    type == "array"
+    and length > 0
+    and all(.[]; type == "object" and (.nodes | type == "array") and (.connections | type == "object"))
+  ' "$file" >/dev/null 2>&1
+}
+
+while IFS= read -r -d '' file; do
+  if is_workflow_file "$file"; then
     WORKFLOW_FILES+=("$file")
   fi
 done < <(
@@ -44,9 +60,17 @@ for wf in "${WORKFLOW_FILES[@]}"; do
   fname="$(basename "$wf")"
   echo "📤 Processing: $fname"
 
+  # Preserve original shape (object vs array), only forcing active=true.
   tmp_wf="$TMP_DIR/$fname"
-
-  jq '.active = true' "$wf" > "$tmp_wf"
+  jq '
+    if type == "array" then
+      map(if type == "object" then .active = true else . end)
+    elif type == "object" then
+      .active = true
+    else
+      .
+    end
+  ' "$wf" > "$tmp_wf"
 
   docker compose -f "$COMPOSE_FILE" cp "$tmp_wf" "$N8N_SERVICE:$REMOTE_IMPORT_DIR/$fname"
 
