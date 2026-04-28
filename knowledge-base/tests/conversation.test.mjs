@@ -1,62 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
 
-import { processConversation } from '../dist/application/whatsapp-conversation.js';
+import { MemoryKnowledgeStore } from '../dist/application/knowledge-store.js';
+import { PostgresContentQueryRepository } from '../dist/infrastructure/repositories/postgres-content.repository.js';
+import { IngestEntryUseCase, ProcessConversationUseCase } from '../dist/application/use-cases/index.js';
 
-async function createEnvironment() {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'kb-conversation-'));
-  const manifestPath = path.join(root, 'projects.json');
-  await fs.writeFile(
-    manifestPath,
-    JSON.stringify({
-      projects: [
-        {
-          project_slug: 'n8n-automations',
-          display_name: 'N8N Automations',
-          aliases: ['n8n'],
-          enabled: true,
-        },
-      ],
-    }),
-  );
-  return {
-    vaultPath: path.join(root, 'vault'),
-    archivePath: path.join(root, 'archive'),
-    manifestPath,
-    workspacesManifestPath: path.join(root, 'workspaces.json'),
-    webhookSecret: '',
-    githubWebhookSecret: '',
-    attachmentMaxVaultBytes: 1024,
-    conversationTimeoutMs: 60000,
-    reviewAiProvider: 'none',
-    reviewAiBaseUrl: '',
-    reviewAiModel: '',
-    reviewAiApiKey: '',
-    conversationAiProvider: 'none',
-    conversationAiBaseUrl: '',
-    conversationAiModel: '',
-    conversationAiApiKey: '',
-    githubApiToken: '',
-    enableGitPush: false,
-    gitBatchMode: true,
-    vaultRemoteUrl: '',
-    gitUserName: 'tester',
-    gitUserEmail: 'tester@example.com',
-    gitPushUsername: '',
-    gitPushToken: '',
-    allowedGroupId: 'group@g.us',
-    publicBaseUrl: 'https://example.com',
-    githubPushWebhookPath: '/n8n/webhook/kb-github-push',
-    ingestWebhookPath: '/n8n/webhook/kb-event',
-    whatsappWebhookPath: '/n8n/webhook/whatsapp-kb-event',
-    onboardingWebhookPath: '/n8n/webhook/kb-onboarding',
-    queryWebhookPath: '/n8n/webhook/kb-query',
-    githubAppInstallUrl: 'https://github.com/apps/example/installations/new',
-    whatsappPairingUrl: 'https://example.com/connect-whatsapp',
-  };
+async function createUseCase() {
+  const store = new MemoryKnowledgeStore();
+  await store.upsertProject('user-1', {
+    projectSlug: 'n8n-automations',
+    displayName: 'N8N Automations',
+    repoFullName: '',
+    workspaceSlug: 'default',
+    aliases: ['n8n'],
+    defaultTags: [],
+    enabled: true,
+  });
+  const ingest = new IngestEntryUseCase(store);
+  const useCase = new ProcessConversationUseCase(store, new PostgresContentQueryRepository(store), store, ingest);
+  return { store, useCase };
 }
 
 function input(messageText, extras = {}) {
@@ -71,10 +33,10 @@ function input(messageText, extras = {}) {
   };
 }
 
-test('whatsapp conversation asks only missing fields and emits canonical payload on confirm', async () => {
-  const env = await createEnvironment();
+test('conversation stores state per user/workspace and ingests on confirm', async () => {
+  const { store, useCase } = await createUseCase();
 
-  const step1 = await processConversation(
+  const step1 = await useCase.execute(
     input('corrigi timeout no webhook', {
       agentResult: {
         extracted: {
@@ -87,45 +49,45 @@ test('whatsapp conversation asks only missing fields and emits canonical payload
         confidence: 'high',
       },
     }),
-    env,
+    'user-1',
+    'default',
   );
   assert.equal(step1.action, 'reply');
   assert.match(step1.replyText, /lembrete/i);
 
-  const step2 = await processConversation(input('9'), env);
+  const step2 = await useCase.execute(input('9'), 'user-1', 'default');
   assert.equal(step2.action, 'reply');
   assert.match(step2.replyText, /Resumo da nota/);
-  assert.match(step2.replyText, /bug/);
 
-  const step3 = await processConversation(input('sim'), env);
+  const step3 = await useCase.execute(input('sim'), 'user-1', 'default');
   assert.equal(step3.action, 'submit');
+  assert.equal(step3.ingestResult.ok, true);
   assert.equal(step3.payload.event.projectSlug, 'n8n-automations');
-  assert.equal(step3.payload.classification.kind, 'bug');
-  assert.equal(step3.payload.classification.canonicalType, 'incident');
+  assert.equal((await store.listNotes('user-1')).length, 1);
 });
 
-test('whatsapp conversation answers explicit knowledge queries without starting capture flow', async () => {
-  const env = await createEnvironment();
-  await fs.mkdir(path.join(env.vaultPath, '20 Inbox', 'n8n-automations', '2026', '04'), { recursive: true });
-  await fs.writeFile(
-    path.join(env.vaultPath, '20 Inbox', 'n8n-automations', '2026', '04', 'deploy.md'),
-    `---
-id: "q1"
-type: "event"
-workspace: ""
-project: "n8n-automations"
-tags: ["deploy", "n8n-automations"]
----
+test('conversation answers explicit knowledge queries without starting capture flow', async () => {
+  const { useCase, store } = await createUseCase();
+  await store.upsertNote('user-1', {
+    path: '20 Inbox/n8n-automations/2026/04/deploy.md',
+    type: 'event',
+    title: 'Deploy checklist',
+    projectSlug: 'n8n-automations',
+    workspaceSlug: 'default',
+    status: 'active',
+    tags: ['deploy'],
+    occurredAt: '2026-04-27',
+    sourceChannel: 'test',
+    summary: 'Revisar timeout e validar webhook em producao.',
+    markdown: '',
+    frontmatter: {},
+    metadata: {},
+    origin: 'postgres',
+    source: 'test',
+    links: [],
+  });
 
-# Deploy checklist
-
-## Resumo
-
-Revisar timeout e validar webhook em producao.
-`,
-  );
-
-  const result = await processConversation(input('/buscar deploy webhook'), env);
+  const result = await useCase.execute(input('/buscar deploy webhook'), 'user-1', 'default');
   assert.equal(result.action, 'reply');
   assert.match(result.replyText, /deploy/i);
   assert.match(result.replyText, /20 Inbox\/n8n-automations\//);

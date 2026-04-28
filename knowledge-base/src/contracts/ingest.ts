@@ -2,16 +2,17 @@ import { z } from 'zod';
 
 import { slugify } from '../domain/strings.js';
 import { buildReminderAt, normalizeDate, normalizeTime } from '../domain/time.js';
+import { CanonicalType, EventType, Importance, KnowledgeKind, KnowledgeStatus, ReviewFindingSeverity, SourceChannel } from './enums.js';
 
-export const sourceChannelSchema = z.enum(['whatsapp', 'github-push', 'n8n-workflow', 'external']);
-export const eventTypeSchema = z.enum(['manual_note', 'code_review', 'daily_summary', 'generic_record']);
-export const kindSchema = z.enum(['note', 'bug', 'summary', 'article', 'daily']);
-export const canonicalTypeSchema = z.enum(['event', 'knowledge', 'decision', 'incident', 'followup', 'reminder']);
-export const importanceSchema = z.enum(['low', 'medium', 'high']);
-export const statusSchema = z.enum(['open', 'active', 'resolved', 'archived']);
+export const sourceChannelSchema = z.nativeEnum(SourceChannel);
+export const eventTypeSchema = z.nativeEnum(EventType);
+export const kindSchema = z.nativeEnum(KnowledgeKind);
+export const canonicalTypeSchema = z.nativeEnum(CanonicalType);
+export const importanceSchema = z.nativeEnum(Importance);
+export const statusSchema = z.nativeEnum(KnowledgeStatus);
 
 const reviewFindingSchema = z.object({
-  severity: z.enum(['low', 'medium', 'high']).default('medium'),
+  severity: z.nativeEnum(ReviewFindingSeverity).default(ReviewFindingSeverity.Medium),
   file: z.string().default(''),
   summary: z.string().min(1),
   recommendation: z.string().default(''),

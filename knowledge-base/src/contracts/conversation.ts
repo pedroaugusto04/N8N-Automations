@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { CanonicalType, ConversationConfidence, ConversationMissingField, ConversationPhase, Importance, KnowledgeKind } from './enums.js';
+
 export const conversationInputSchema = z.object({
   messageText: z.string().default(''),
   senderId: z.string().min(1),
@@ -20,17 +22,17 @@ export const conversationInputSchema = z.object({
         .object({
           rawText: z.string().optional(),
           projectSlug: z.string().optional(),
-          kind: z.enum(['note', 'bug', 'summary', 'article', 'daily']).optional(),
-          canonicalType: z.enum(['event', 'knowledge', 'decision', 'incident']).optional(),
-          importance: z.enum(['low', 'medium', 'high']).optional(),
+          kind: z.nativeEnum(KnowledgeKind).optional(),
+          canonicalType: z.nativeEnum(CanonicalType).optional(),
+          importance: z.nativeEnum(Importance).optional(),
           tags: z.array(z.string()).optional(),
           reminderDate: z.string().optional(),
           reminderTime: z.string().optional(),
         })
         .default({}),
-      missingFields: z.array(z.enum(['projectSlug', 'kind', 'rawText', 'reminderDate', 'reminderTime', 'confirmation'])).default([]),
+      missingFields: z.array(z.nativeEnum(ConversationMissingField)).default([]),
       nextQuestion: z.string().optional(),
-      confidence: z.enum(['high', 'medium', 'low']).default('low'),
+      confidence: z.nativeEnum(ConversationConfidence).default(ConversationConfidence.Low),
     })
     .optional(),
 });
@@ -38,12 +40,12 @@ export const conversationInputSchema = z.object({
 export type ConversationInput = z.infer<typeof conversationInputSchema>;
 
 export const conversationStateSchema = z.object({
-  phase: z.enum(['idle', 'awaiting_kind', 'awaiting_project', 'awaiting_reminder_date', 'awaiting_reminder_time', 'awaiting_confirmation']),
+  phase: z.nativeEnum(ConversationPhase),
   rawText: z.string().default(''),
   projectSlug: z.string().default(''),
-  kind: z.enum(['note', 'bug', 'summary', 'article', 'daily']).default('note'),
-  canonicalType: z.enum(['event', 'knowledge', 'decision', 'incident']).default('event'),
-  importance: z.enum(['low', 'medium', 'high']).default('low'),
+  kind: z.nativeEnum(KnowledgeKind).default(KnowledgeKind.Note),
+  canonicalType: z.nativeEnum(CanonicalType).default(CanonicalType.Event),
+  importance: z.nativeEnum(Importance).default(Importance.Low),
   tags: z.array(z.string()).default([]),
   reminderDate: z.string().default(''),
   reminderTime: z.string().default(''),

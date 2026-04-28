@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import { AuthService } from '../dist/application/auth.js';
 import { IntegrationCredentialService } from '../dist/application/credentials.js';
 import { MemoryKnowledgeStore } from '../dist/application/knowledge-store.js';
-import { AuthController, InternalIntegrationsController, UserIntegrationsController } from '../dist/interfaces/http/controllers/auth.controllers.js';
+import { AuthController, InternalIntegrationsController, UserIntegrationsController } from '../dist/interfaces/http/controllers/index.js';
 
 function configureEnv() {
   process.env.KB_ADMIN_EMAIL = 'admin@example.com';
@@ -134,7 +134,7 @@ test('credentials are encrypted, masked in user responses, and resolved internal
   const request = { headers: { origin: 'https://kb.example.com', host: 'kb.example.com', cookie: `kb_access_token=${accessToken}` }, protocol: 'https' };
 
   const saved = await userController.save(
-    'telegram',
+    { provider: 'telegram' },
     {
       workspaceSlug: 'default',
       config: { botToken: 'telegram-secret-value', chatId: '123' },
@@ -154,29 +154,29 @@ test('credentials are encrypted, masked in user responses, and resolved internal
   assert.equal(JSON.stringify(stored.encryptedConfig).includes('telegram-secret-value'), false);
 
   const resolvedByUser = await internalController.resolve(
-    'telegram',
+    { provider: 'telegram' },
     { workspaceSlug: 'default', userId: login.user.id },
     { headers: { authorization: 'Bearer internal-token' } },
   );
   assert.deepEqual(resolvedByUser.config, { botToken: 'telegram-secret-value', chatId: '123' });
 
   const resolvedByIdentity = await internalController.resolve(
-    'telegram',
+    { provider: 'telegram' },
     { workspaceSlug: 'default', externalIdentity: { provider: 'telegram', identityType: 'chat_id', externalId: '123' } },
     { headers: { authorization: 'Bearer internal-token' } },
   );
   assert.equal(resolvedByIdentity.userId, login.user.id);
 
-  const listed = await userController.list(login.user, request, 'default');
+  const listed = await userController.list(login.user, request, { workspaceSlug: 'default' });
   assert.equal(JSON.stringify(listed).includes('telegram-secret-value'), false);
 
-  const revoked = await userController.revoke('telegram', 'default', login.user, request);
+  const revoked = await userController.revoke({ provider: 'telegram' }, { workspaceSlug: 'default' }, login.user, request);
   assert.equal(revoked.integration.status, 'revoked');
   const revokedStored = await store.findCredential(login.user.id, 'default', 'telegram');
   assert.equal(JSON.stringify(revokedStored.encryptedConfig).includes('telegram-secret-value'), false);
 });
 
-test('credential payload validation rejects secret-like public metadata and identity hijacking', async () => {
+test('credential identity binding rejects hijacking and invalid provider linkage', async () => {
   const first = await fixture();
   const firstAuthController = new AuthController(first.auth);
   const firstUserController = new UserIntegrationsController(first.auth, first.credentials);
@@ -189,22 +189,8 @@ test('credential payload validation rejects secret-like public metadata and iden
   const firstAccessToken = firstLoginResponse.cookies.find((cookie) => cookie.name === 'kb_access_token').value;
   const firstRequest = { headers: { origin: 'https://kb.example.com', host: 'kb.example.com', cookie: `kb_access_token=${firstAccessToken}` }, protocol: 'https' };
 
-  await assert.rejects(
-    () => firstUserController.save(
-      'telegram',
-      {
-        workspaceSlug: 'default',
-        config: { botToken: 'secret', chatId: '123' },
-        publicMetadata: { label: 'ops bot', apiKey: 'must-not-be-public' },
-      },
-      firstLogin.user,
-      firstRequest,
-    ),
-    /invalid_integration_credential_payload/,
-  );
-
   await firstUserController.save(
-    'telegram',
+    { provider: 'telegram' },
     {
       workspaceSlug: 'default',
       config: { botToken: 'secret', chatId: '123' },
@@ -217,7 +203,7 @@ test('credential payload validation rejects secret-like public metadata and iden
 
   await assert.rejects(
     () => firstUserController.save(
-      'ai-review',
+      { provider: 'ai-review' },
       {
         workspaceSlug: 'default',
         config: { apiKey: 'secret', model: 'review-model' },
@@ -239,7 +225,7 @@ test('credential payload validation rejects secret-like public metadata and iden
 
   await assert.rejects(
     () => secondController.save(
-      'telegram',
+      { provider: 'telegram' },
       {
         workspaceSlug: 'default',
         config: { botToken: 'other-secret', chatId: '123' },

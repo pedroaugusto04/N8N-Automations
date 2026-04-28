@@ -45,12 +45,23 @@
       },
       {
         "parameters": {
-          "command": "node /home/node/knowledge-base/dist/cli/reminders.js daily"
+          "method": "GET",
+          "url": "={{$env.KB_API_BASE_URL || 'http://knowledge-base:3000'}}/api/internal/n8n/reminders/dispatch?mode=daily&provider={{$json.provider || \"whatsapp\"}}&identityType={{$json.identityType || \"jid\"}}&externalId={{$json.externalId || $json.externalIdentity?.externalId || \"\"}}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{$env.KB_INTERNAL_SERVICE_TOKEN}}"
+              }
+            ]
+          },
+          "options": {}
         },
         "id": "kb-reminders-daily-cli",
-        "name": "Build Daily Reminders",
-        "type": "n8n-nodes-base.executeCommand",
-        "typeVersion": 1,
+        "name": "Fetch Daily Reminders",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
         "position": [
           240,
           -96
@@ -58,12 +69,23 @@
       },
       {
         "parameters": {
-          "command": "node /home/node/knowledge-base/dist/cli/reminders.js exact"
+          "method": "GET",
+          "url": "={{$env.KB_API_BASE_URL || 'http://knowledge-base:3000'}}/api/internal/n8n/reminders/dispatch?mode=exact&provider={{$json.provider || \"whatsapp\"}}&identityType={{$json.identityType || \"jid\"}}&externalId={{$json.externalId || $json.externalIdentity?.externalId || \"\"}}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{$env.KB_INTERNAL_SERVICE_TOKEN}}"
+              }
+            ]
+          },
+          "options": {}
         },
         "id": "kb-reminders-exact-cli",
-        "name": "Build Exact Reminders",
-        "type": "n8n-nodes-base.executeCommand",
-        "typeVersion": 1,
+        "name": "Fetch Exact Reminders",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
         "position": [
           240,
           96
@@ -71,7 +93,7 @@
       },
       {
         "parameters": {
-          "jsCode": "const stdout = String($json.stdout || '').trim();\nlet parsed;\ntry {\n  parsed = JSON.parse(stdout || '{}');\n} catch {\n  parsed = { ok: false, shouldSend: false, message: stdout || 'invalid_json_from_daily_cli' };\n}\nreturn [{ json: parsed }];"
+          "jsCode": "return [{ json: $json }];"
         },
         "id": "kb-reminders-daily-parse",
         "name": "Parse Daily Result",
@@ -84,7 +106,7 @@
       },
       {
         "parameters": {
-          "jsCode": "const stdout = String($json.stdout || '').trim();\nlet parsed;\ntry {\n  parsed = JSON.parse(stdout || '{}');\n} catch {\n  parsed = { ok: false, shouldSend: false, message: stdout || 'invalid_json_from_exact_cli' };\n}\nreturn [{ json: parsed }];"
+          "jsCode": "return [{ json: $json }];"
         },
         "id": "kb-reminders-exact-parse",
         "name": "Parse Exact Result",
@@ -225,12 +247,26 @@
       },
       {
         "parameters": {
-          "command": "=node /home/node/knowledge-base/dist/cli/reminders.js mark-sent '{{$node[\"Parse Exact Result\"].json[\"remindersArg\"] || \"\"}}'"
+          "method": "POST",
+          "url": "={{$env.KB_API_BASE_URL || 'http://knowledge-base:3000'}}/api/internal/n8n/reminders/mark-sent",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{$env.KB_INTERNAL_SERVICE_TOKEN}}"
+              }
+            ]
+          },
+          "options": {},
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ $json.payload || $json }}"
         },
         "id": "kb-reminders-mark-sent",
         "name": "Mark Exact Reminders Sent",
-        "type": "n8n-nodes-base.executeCommand",
-        "typeVersion": 1,
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
         "position": [
           1200,
           64
@@ -242,7 +278,7 @@
         "main": [
           [
             {
-              "node": "Build Daily Reminders",
+              "node": "Fetch Daily Reminders",
               "type": "main",
               "index": 0
             }
@@ -253,14 +289,14 @@
         "main": [
           [
             {
-              "node": "Build Exact Reminders",
+              "node": "Fetch Exact Reminders",
               "type": "main",
               "index": 0
             }
           ]
         ]
       },
-      "Build Daily Reminders": {
+      "Fetch Daily Reminders": {
         "main": [
           [
             {
@@ -271,7 +307,7 @@
           ]
         ]
       },
-      "Build Exact Reminders": {
+      "Fetch Exact Reminders": {
         "main": [
           [
             {

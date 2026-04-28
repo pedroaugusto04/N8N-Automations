@@ -144,7 +144,7 @@
       },
       {
         "parameters": {
-          "jsCode": "const payload = {\n  messageText: $json.message_text || '',\n  senderId: $json.sender_jid || '',\n  groupId: $json.group_jid || '',\n  messageId: $json.message_id || '',\n  hasMedia: Boolean($json.has_media),\n  media: {\n    fileName: $json.media_file_name || '',\n    mimeType: $json.media_mime_type || 'application/octet-stream',\n    sizeBytes: Number($json.media_file_size || 0),\n    dataBase64: $json.media_data_b64 || ''\n  }\n};\nconst encoded = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64');\nconst tempPath = `/tmp/kb-wpp-${Date.now()}-${Math.random().toString(16).slice(2)}.b64`;\nreturn [{ json: { payload_b64: encoded, payload_file_path: tempPath } }];"
+          "jsCode": "const item = $input.first() || {};\nconst json = item.json || {};\nconst body = json.body && typeof json.body === 'object' ? json.body : json;\nconst payload = body.payload && typeof body.payload === 'object' ? body.payload : body;\nreturn [{ json: { ...payload, payload } }];"
         },
         "id": "kb-wpp-prepare",
         "name": "Prepare Conversation Input",
@@ -157,12 +157,26 @@
       },
       {
         "parameters": {
-          "command": "=echo '{{$json.payload_b64}}' > '{{$json.payload_file_path}}' && node /home/node/knowledge-base/dist/cli/conversation.js --file '{{$json.payload_file_path}}'; rm -f '{{$json.payload_file_path}}'"
+          "method": "POST",
+          "url": "={{$env.KB_API_BASE_URL || 'http://knowledge-base:3000'}}/api/internal/n8n/conversation",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{$env.KB_INTERNAL_SERVICE_TOKEN}}"
+              }
+            ]
+          },
+          "options": {},
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ $json.payload || $json }}"
         },
         "id": "kb-wpp-run-conversation",
-        "name": "Run Conversation CLI",
-        "type": "n8n-nodes-base.executeCommand",
-        "typeVersion": 1,
+        "name": "Call conversation",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
         "position": [
           1680,
           0
@@ -170,7 +184,7 @@
       },
       {
         "parameters": {
-          "jsCode": "const stdout = String($json.stdout || '').trim();\nlet parsed;\ntry {\n  parsed = JSON.parse(stdout || '{}');\n} catch {\n  parsed = { action: 'error', replyText: stdout || 'invalid_json_from_conversation_cli', payload: null };\n}\nreturn [{ json: parsed }];"
+          "jsCode": "return [{ json: $json }];"
         },
         "id": "kb-wpp-parse-conversation",
         "name": "Parse Conversation Result",
@@ -247,7 +261,7 @@
       },
       {
         "parameters": {
-          "jsCode": "const payload = $node['Parse Conversation Result'].json.payload;\nconst encoded = Buffer.from(JSON.stringify(payload || {}), 'utf8').toString('base64');\nconst tempPath = `/tmp/kb-wpp-submit-${Date.now()}-${Math.random().toString(16).slice(2)}.b64`;\nreturn [{ json: { payload_b64: encoded, payload_file_path: tempPath } }];"
+          "jsCode": "const item = $input.first() || {};\nconst json = item.json || {};\nconst body = json.body && typeof json.body === 'object' ? json.body : json;\nconst payload = body.payload && typeof body.payload === 'object' ? body.payload : body;\nreturn [{ json: { ...payload, payload } }];"
         },
         "id": "kb-wpp-prepare-ingest",
         "name": "Prepare Ingest Payload",
@@ -260,12 +274,26 @@
       },
       {
         "parameters": {
-          "command": "=echo '{{$json.payload_b64}}' > '{{$json.payload_file_path}}' && node /home/node/knowledge-base/dist/cli/ingest.js --file '{{$json.payload_file_path}}'; rm -f '{{$json.payload_file_path}}'"
+          "method": "POST",
+          "url": "={{$env.KB_API_BASE_URL || 'http://knowledge-base:3000'}}/api/internal/n8n/ingest",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{$env.KB_INTERNAL_SERVICE_TOKEN}}"
+              }
+            ]
+          },
+          "options": {},
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ $json.payload || $json }}"
         },
         "id": "kb-wpp-run-ingest",
-        "name": "Run Ingest CLI",
-        "type": "n8n-nodes-base.executeCommand",
-        "typeVersion": 1,
+        "name": "Call ingest",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
         "position": [
           2640,
           96
@@ -273,7 +301,7 @@
       },
       {
         "parameters": {
-          "jsCode": "const stdout = String($json.stdout || '').trim();\nlet parsed;\ntry {\n  parsed = JSON.parse(stdout || '{}');\n} catch {\n  parsed = { ok: false, message: stdout || 'invalid_json_from_ingest_cli' };\n}\nconst text = parsed.ok ? `Nota salva no vault\\nProjeto: ${parsed.project || ''}\\nNota: ${parsed.eventPath || ''}` : `Falha ao salvar nota: ${parsed.message || 'erro desconhecido'}`;\nreturn [{ json: { ...parsed, confirmText: text } }];"
+          "jsCode": "return [{ json: $json }];"
         },
         "id": "kb-wpp-parse-ingest",
         "name": "Parse Ingest Result",
@@ -434,14 +462,14 @@
         "main": [
           [
             {
-              "node": "Run Conversation CLI",
+              "node": "Call conversation",
               "type": "main",
               "index": 0
             }
           ]
         ]
       },
-      "Run Conversation CLI": {
+      "Call conversation": {
         "main": [
           [
             {
@@ -490,14 +518,14 @@
         "main": [
           [
             {
-              "node": "Run Ingest CLI",
+              "node": "Call ingest",
               "type": "main",
               "index": 0
             }
           ]
         ]
       },
-      "Run Ingest CLI": {
+      "Call ingest": {
         "main": [
           [
             {

@@ -1,7 +1,7 @@
-import { BadRequestException } from '@nestjs/common';
 import { z } from 'zod';
 
-import { integrationProviders, type IntegrationProvider } from '../../../application/credentials.js';
+import type { IntegrationProvider } from '../../../application/credentials.js';
+import { ExternalIdentityProvider, IntegrationProvider as IntegrationProviderEnum } from '../../../contracts/enums.js';
 
 const workspaceSlugSchema = z.string().trim().min(1).max(80).regex(/^[a-zA-Z0-9._-]+$/).default('default');
 const publicMetadataSchema = z
@@ -12,7 +12,7 @@ const publicMetadataSchema = z
   .default({});
 
 const externalIdentitySchema = z.object({
-  provider: z.enum(['telegram', 'whatsapp', 'github', 'github-app']),
+  provider: z.nativeEnum(ExternalIdentityProvider),
   identityType: z.string().trim().min(1).max(80).regex(/^[a-zA-Z0-9._-]+$/).optional(),
   externalId: z.string().trim().min(1).max(180),
 });
@@ -23,14 +23,20 @@ const baseConfigSchema = z
   .refine((config) => Object.keys(config).length > 0, { message: 'config_must_not_be_empty' });
 
 const providerConfigSchemas: Record<IntegrationProvider, z.ZodType<Record<string, string | number | boolean>>> = {
-  telegram: baseConfigSchema,
-  whatsapp: baseConfigSchema,
-  evolution: baseConfigSchema,
-  'ai-review': baseConfigSchema,
-  'ai-conversation': baseConfigSchema,
-  github: baseConfigSchema,
-  'github-app': baseConfigSchema,
+  [IntegrationProviderEnum.Telegram]: baseConfigSchema,
+  [IntegrationProviderEnum.Whatsapp]: baseConfigSchema,
+  [IntegrationProviderEnum.Evolution]: baseConfigSchema,
+  [IntegrationProviderEnum.AiReview]: baseConfigSchema,
+  [IntegrationProviderEnum.AiConversation]: baseConfigSchema,
+  [IntegrationProviderEnum.Github]: baseConfigSchema,
+  [IntegrationProviderEnum.GithubApp]: baseConfigSchema,
 };
+
+export const integrationProviderSchema = z.nativeEnum(IntegrationProviderEnum);
+
+export const providerParamSchema = z.object({
+  provider: integrationProviderSchema,
+});
 
 export const saveIntegrationCredentialBodySchema = z
   .object({
@@ -48,42 +54,37 @@ export const resolveIntegrationCredentialBodySchema = z
     externalIdentity: externalIdentitySchema.optional(),
   })
   .strict()
-  .refine((body) => Boolean(body.userId || body.externalIdentity), { message: 'user_or_external_identity_required' });
+  .refine((body) => Boolean(body.userId || body.externalIdentity), { message: 'user_or_external_identity_required' })
+  .transform((body) => ({
+    ...body,
+    workspaceSlug: body.workspaceSlug || 'default',
+  }));
+
+export const workspaceQuerySchema = z.object({
+  workspaceSlug: workspaceSlugSchema.optional(),
+}).transform((query) => ({
+  workspaceSlug: query.workspaceSlug || 'default',
+}));
 
 export type SaveIntegrationCredentialBody = z.infer<typeof saveIntegrationCredentialBodySchema> & {
   provider: IntegrationProvider;
   config: Record<string, string | number | boolean>;
 };
 
+export type SaveIntegrationCredentialBodyInput = z.infer<typeof saveIntegrationCredentialBodySchema>;
 export type ResolveIntegrationCredentialBody = z.infer<typeof resolveIntegrationCredentialBodySchema>;
+export type ProviderParam = z.infer<typeof providerParamSchema>;
+export type WorkspaceQuery = z.infer<typeof workspaceQuerySchema>;
 
-export function parseIntegrationProvider(provider: string): IntegrationProvider {
-  const parsed = z.enum(integrationProviders).safeParse(provider);
-  if (!parsed.success) throw new BadRequestException('provider_not_supported');
-  return parsed.data;
-}
-
-export function parseSaveIntegrationCredentialBody(provider: IntegrationProvider, body: unknown): SaveIntegrationCredentialBody {
-  const parsedBody = saveIntegrationCredentialBodySchema.safeParse(body);
-  if (!parsedBody.success) throw new BadRequestException('invalid_integration_credential_payload');
-
-  const parsedConfig = providerConfigSchemas[provider].safeParse(parsedBody.data.config);
-  if (!parsedConfig.success) throw new BadRequestException('invalid_integration_config');
+export function parseSaveIntegrationCredentialBody(provider: IntegrationProvider, body: z.infer<typeof saveIntegrationCredentialBodySchema>): SaveIntegrationCredentialBody {
+  const parsedConfig = providerConfigSchemas[provider].safeParse(body.config);
+  if (!parsedConfig.success) throw new Error('invalid_integration_config');
 
   return {
-    ...parsedBody.data,
+    ...body,
     provider,
-    workspaceSlug: parsedBody.data.workspaceSlug || 'default',
-    publicMetadata: parsedBody.data.publicMetadata || {},
+    workspaceSlug: body.workspaceSlug || 'default',
+    publicMetadata: body.publicMetadata || {},
     config: parsedConfig.data,
-  };
-}
-
-export function parseResolveIntegrationCredentialBody(body: unknown): ResolveIntegrationCredentialBody {
-  const parsed = resolveIntegrationCredentialBodySchema.safeParse(body);
-  if (!parsed.success) throw new BadRequestException('invalid_integration_resolution_payload');
-  return {
-    ...parsed.data,
-    workspaceSlug: parsed.data.workspaceSlug || 'default',
   };
 }

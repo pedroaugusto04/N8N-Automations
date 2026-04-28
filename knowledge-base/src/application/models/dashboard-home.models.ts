@@ -19,7 +19,7 @@ export type HomeProjectActivity = {
 };
 
 export type HomeNavigationTarget = {
-  kind: 'note' | 'review' | 'project';
+  kind: HomeTargetKind;
   id?: string;
   path?: string;
   slug?: string;
@@ -27,7 +27,7 @@ export type HomeNavigationTarget = {
 
 export type HomePriority = {
   id: string;
-  type: 'reminder' | 'finding' | 'incident' | 'followup';
+  type: HomePriorityType;
   title: string;
   project: string;
   date: string;
@@ -56,3 +56,4 @@ export type DashboardHomeSummary = {
   priorities: HomePriority[];
   recentInterestingEvents: HomeInterestingEvent[];
 };
+import type { HomePriorityType, HomeTargetKind } from '../../contracts/enums.js';

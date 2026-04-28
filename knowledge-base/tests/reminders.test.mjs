@@ -1,77 +1,56 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
 
-import { buildReminderDispatch, markRemindersAsSent } from '../dist/application/reminders.js';
+import { MemoryKnowledgeStore } from '../dist/application/knowledge-store.js';
+import { PostgresContentQueryRepository } from '../dist/infrastructure/repositories/postgres-content.repository.js';
+import { BuildReminderDispatchUseCase, MarkReminderAsSentUseCase } from '../dist/application/use-cases/index.js';
 
-async function createEnvironmentWithReminder() {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'kb-reminders-'));
-  const reminderRoot = path.join(root, 'vault', '60 Reminders', 'n8n-automations', '2026', '04');
-  await fs.mkdir(reminderRoot, { recursive: true });
-  await fs.writeFile(
-    path.join(reminderRoot, 'reminder.md'),
-    `---
-id: "r1"
-type: "reminder"
-project: "n8n-automations"
-status: "open"
-reminder_date: "2099-12-31"
-reminder_time: "09:00"
-reminder_at: "2099-12-31T09:00:00-03:00"
----
-
-# Reminder deploy
-`,
-  );
-  return {
-    vaultPath: path.join(root, 'vault'),
-    archivePath: path.join(root, 'archive'),
-    manifestPath: path.join(root, 'projects.json'),
-    workspacesManifestPath: path.join(root, 'workspaces.json'),
-    webhookSecret: '',
-    githubWebhookSecret: '',
-    attachmentMaxVaultBytes: 0,
-    conversationTimeoutMs: 0,
-    reviewAiProvider: 'none',
-    reviewAiBaseUrl: '',
-    reviewAiModel: '',
-    reviewAiApiKey: '',
-    conversationAiProvider: 'none',
-    conversationAiBaseUrl: '',
-    conversationAiModel: '',
-    conversationAiApiKey: '',
-    githubApiToken: '',
-    enableGitPush: false,
-    gitBatchMode: true,
-    vaultRemoteUrl: '',
-    gitUserName: '',
-    gitUserEmail: '',
-    gitPushUsername: '',
-    gitPushToken: '',
-    allowedGroupId: '',
-    publicBaseUrl: 'https://example.com',
-    githubPushWebhookPath: '/n8n/webhook/kb-github-push',
-    ingestWebhookPath: '/n8n/webhook/kb-event',
-    whatsappWebhookPath: '/n8n/webhook/whatsapp-kb-event',
-    onboardingWebhookPath: '/n8n/webhook/kb-onboarding',
-    queryWebhookPath: '/n8n/webhook/kb-query',
-    githubAppInstallUrl: 'https://github.com/apps/example/installations/new',
-    whatsappPairingUrl: 'https://example.com/connect-whatsapp',
-  };
+async function createStoreWithReminder() {
+  const store = new MemoryKnowledgeStore();
+  await store.upsertNote('user-1', {
+    id: '11111111-1111-1111-1111-111111111111',
+    path: '60 Reminders/n8n-automations/reminder.md',
+    type: 'reminder',
+    title: 'Reminder deploy',
+    projectSlug: 'n8n-automations',
+    workspaceSlug: 'default',
+    status: 'open',
+    tags: [],
+    occurredAt: '2099-12-31T09:00:00-03:00',
+    sourceChannel: 'test',
+    summary: 'Reminder deploy',
+    markdown: '',
+    frontmatter: {},
+    metadata: {
+      reminderDate: '2099-12-31',
+      reminderTime: '09:00',
+      reminderAt: '2099-12-31T09:00:00-03:00',
+    },
+    origin: 'postgres',
+    source: 'test',
+    links: [],
+  });
+  return store;
 }
 
-test('daily reminders are aggregated once per date', async () => {
-  const env = await createEnvironmentWithReminder();
-  const result = await buildReminderDispatch('daily', env);
-  assert.equal(result.ok, true);
-  assert.equal(typeof result.shouldSend, 'boolean');
+test('daily reminders are aggregated once per date by user and workspace', async () => {
+  const store = await createStoreWithReminder();
+  const useCase = new BuildReminderDispatchUseCase(new PostgresContentQueryRepository(store), store);
+
+  const first = await useCase.execute('daily', 'user-1', 'default');
+  const second = await useCase.execute('daily', 'user-1', 'default');
+
+  assert.equal(first.ok, true);
+  assert.equal(first.shouldSend, true);
+  assert.equal(second.shouldSend, false);
 });
 
 test('markRemindersAsSent updates exact reminder state', async () => {
-  const env = await createEnvironmentWithReminder();
-  const result = await markRemindersAsSent(['r1'], env);
+  const store = await createStoreWithReminder();
+  const marker = new MarkReminderAsSentUseCase(store);
+  const result = await marker.execute(['11111111-1111-1111-1111-111111111111'], 'user-1', 'default', 'exact', '2099-12-31T09:00');
+
   assert.equal(result.ok, true);
   assert.equal(result.marked, 1);
+  assert.equal(await store.hasSent('user-1', 'default', 'exact', '2099-12-31T09:00', '11111111-1111-1111-1111-111111111111'), true);
 });

@@ -23,7 +23,7 @@
       },
       {
         "parameters": {
-          "jsCode": "const item = $input.first() || {};\nconst json = item.json || {};\nconst payload = {\n  headers: json.headers || {},\n  body: json.body && typeof json.body === 'object' ? json.body : json,\n  rawBody: Buffer.from(String(json.rawBody || '')).toString('utf8') || '',\n};\nconst encoded = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64');\nconst tempPath = `/tmp/kb-gh-push-${Date.now()}-${Math.random().toString(16).slice(2)}.b64`;\nreturn [{ json: { payload_b64: encoded, payload_file_path: tempPath } }];"
+          "jsCode": "const item = $input.first() || {};\nconst json = item.json || {};\nconst body = json.body && typeof json.body === 'object' ? json.body : json;\nconst payload = body.payload && typeof body.payload === 'object' ? body.payload : body;\nreturn [{ json: { ...payload, payload } }];"
         },
         "id": "kb-gh-prepare",
         "name": "Prepare Payload",
@@ -36,12 +36,26 @@
       },
       {
         "parameters": {
-          "command": "=echo '{{$json.payload_b64}}' > '{{$json.payload_file_path}}' && node /home/node/knowledge-base/dist/cli/github-push.js --file '{{$json.payload_file_path}}'; rm -f '{{$json.payload_file_path}}'"
+          "method": "POST",
+          "url": "={{$env.KB_API_BASE_URL || 'http://knowledge-base:3000'}}/api/webhooks/github/push",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{$env.KB_INTERNAL_SERVICE_TOKEN}}"
+              }
+            ]
+          },
+          "options": {},
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ $json.payload || $json }}"
         },
         "id": "kb-gh-run",
-        "name": "Run GitHub Push CLI",
-        "type": "n8n-nodes-base.executeCommand",
-        "typeVersion": 1,
+        "name": "Call push",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
         "position": [
           480,
           0
@@ -49,7 +63,7 @@
       },
       {
         "parameters": {
-          "jsCode": "const stdout = String($json.stdout || '').trim();\nlet parsed;\ntry {\n  parsed = JSON.parse(stdout || '{}');\n} catch {\n  parsed = { ok: false, message: stdout || 'invalid_json_from_github_push_cli' };\n}\nreturn [{ json: parsed }];"
+          "jsCode": "return [{ json: $json }];"
         },
         "id": "kb-gh-parse",
         "name": "Parse Result",
@@ -156,14 +170,14 @@
         "main": [
           [
             {
-              "node": "Run GitHub Push CLI",
+              "node": "Call push",
               "type": "main",
               "index": 0
             }
           ]
         ]
       },
-      "Run GitHub Push CLI": {
+      "Call push": {
         "main": [
           [
             {

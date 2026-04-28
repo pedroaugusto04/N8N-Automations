@@ -1,10 +1,14 @@
 import crypto from 'node:crypto';
 
+import { CredentialRecordStatus, type ReminderDispatchMode } from '../contracts/enums.js';
 import type {
   ExternalIdentityRecord,
   IntegrationCredentialRecord,
   KbUser,
   NoteRecord,
+  AttachmentRecord,
+  ConversationStateRecord,
+  SaveAttachmentInput,
   ProjectRecord,
   SaveNoteInput,
   SaveProjectInput,
@@ -15,15 +19,17 @@ import type {
 } from './models/repository-records.models.js';
 import type {
   ContentRepository,
+  ConversationStateRepository,
   CredentialRepository,
   ExternalIdentityRepository,
+  ReminderDispatchRepository,
   SchemaMigrator,
   UserRepository,
   WebhookEventRepository,
 } from './ports/repositories.js';
 
 export abstract class KnowledgeStore
-  implements SchemaMigrator, UserRepository, CredentialRepository, ExternalIdentityRepository, ContentRepository, WebhookEventRepository
+  implements SchemaMigrator, UserRepository, CredentialRepository, ExternalIdentityRepository, ContentRepository, WebhookEventRepository, ConversationStateRepository, ReminderDispatchRepository
 {
   abstract migrate(): Promise<void>;
   abstract findUserByEmail(email: string): Promise<KbUser | null>;
@@ -54,6 +60,8 @@ export abstract class KnowledgeStore
   abstract listNotes(userId: string): Promise<NoteRecord[]>;
   abstract getNoteById(userId: string, id: string): Promise<NoteRecord | null>;
   abstract upsertNote(userId: string, input: SaveNoteInput): Promise<NoteRecord>;
+  abstract saveAttachment(userId: string, input: SaveAttachmentInput): Promise<AttachmentRecord>;
+  abstract listAttachments(userId: string, noteId: string): Promise<AttachmentRecord[]>;
   abstract recordWebhookEvent(input: {
     provider: string;
     eventType: string;
@@ -64,6 +72,11 @@ export abstract class KnowledgeStore
     rawPayload?: unknown;
     error?: string;
   }): Promise<WebhookEventRecord>;
+  abstract get(userId: string, workspaceSlug: string, conversationKey: string): Promise<ConversationStateRecord | null>;
+  abstract upsert(userId: string, workspaceSlug: string, conversationKey: string, state: unknown): Promise<ConversationStateRecord>;
+  abstract clear(userId: string, workspaceSlug: string, conversationKey: string): Promise<void>;
+  abstract hasSent(userId: string, workspaceSlug: string, mode: ReminderDispatchMode, dispatchKey: string, reminderId: string): Promise<boolean>;
+  abstract markSent(userId: string, workspaceSlug: string, mode: ReminderDispatchMode, dispatchKey: string, reminderId: string): Promise<void>;
 }
 
 export class MemoryKnowledgeStore extends KnowledgeStore {
@@ -73,7 +86,10 @@ export class MemoryKnowledgeStore extends KnowledgeStore {
   private workspaces = new Map<string, WorkspaceRecord>();
   private projects = new Map<string, ProjectRecord>();
   private notes = new Map<string, NoteRecord>();
+  private attachments = new Map<string, AttachmentRecord>();
   private webhookEvents = new Map<string, WebhookEventRecord>();
+  private conversationStates = new Map<string, ConversationStateRecord>();
+  private reminderDispatch = new Set<string>();
 
   async migrate() {}
 
@@ -129,7 +145,7 @@ export class MemoryKnowledgeStore extends KnowledgeStore {
     const key = credentialKey(userId, workspaceSlug, provider);
     const existing = this.credentials.get(key);
     if (!existing) return null;
-    const revoked = { ...existing, status: 'revoked' as const, encryptedConfig, updatedAt: new Date().toISOString(), revokedAt: new Date().toISOString() };
+    const revoked = { ...existing, status: CredentialRecordStatus.Revoked, encryptedConfig, updatedAt: new Date().toISOString(), revokedAt: new Date().toISOString() };
     this.credentials.set(key, revoked);
     return revoked;
   }
@@ -222,6 +238,28 @@ export class MemoryKnowledgeStore extends KnowledgeStore {
     return note;
   }
 
+  async saveAttachment(userId: string, input: SaveAttachmentInput) {
+    const now = new Date().toISOString();
+    const attachment: AttachmentRecord = {
+      id: input.id || crypto.randomUUID(),
+      userId,
+      noteId: input.noteId,
+      fileName: input.fileName,
+      mimeType: input.mimeType,
+      sizeBytes: input.sizeBytes,
+      contentBase64: input.contentBase64,
+      checksumSha256: input.checksumSha256,
+      metadata: input.metadata,
+      createdAt: now,
+    };
+    this.attachments.set(`${userId}:${attachment.noteId}:${attachment.id}`, attachment);
+    return attachment;
+  }
+
+  async listAttachments(userId: string, noteId: string) {
+    return Array.from(this.attachments.values()).filter((attachment) => attachment.userId === userId && attachment.noteId === noteId);
+  }
+
   async recordWebhookEvent(input: {
     provider: string;
     eventType: string;
@@ -249,6 +287,34 @@ export class MemoryKnowledgeStore extends KnowledgeStore {
     this.webhookEvents.set(event.id, event);
     return event;
   }
+
+  async get(userId: string, workspaceSlug: string, conversationKey: string) {
+    return this.conversationStates.get(stateKey(userId, workspaceSlug, conversationKey)) || null;
+  }
+
+  async upsert(userId: string, workspaceSlug: string, conversationKey: string, state: unknown) {
+    const record: ConversationStateRecord = {
+      userId,
+      workspaceSlug,
+      conversationKey,
+      state,
+      updatedAt: new Date().toISOString(),
+    };
+    this.conversationStates.set(stateKey(userId, workspaceSlug, conversationKey), record);
+    return record;
+  }
+
+  async clear(userId: string, workspaceSlug: string, conversationKey: string) {
+    this.conversationStates.delete(stateKey(userId, workspaceSlug, conversationKey));
+  }
+
+  async hasSent(userId: string, workspaceSlug: string, mode: ReminderDispatchMode, dispatchKey: string, reminderId: string) {
+    return this.reminderDispatch.has(dispatchKeyForReminder(userId, workspaceSlug, mode, dispatchKey, reminderId));
+  }
+
+  async markSent(userId: string, workspaceSlug: string, mode: ReminderDispatchMode, dispatchKey: string, reminderId: string) {
+    this.reminderDispatch.add(dispatchKeyForReminder(userId, workspaceSlug, mode, dispatchKey, reminderId));
+  }
 }
 
 function credentialKey(userId: string, workspaceSlug: string, provider: string): string {
@@ -257,4 +323,12 @@ function credentialKey(userId: string, workspaceSlug: string, provider: string):
 
 function identityKey(provider: string, identityType: string, externalId: string): string {
   return `${provider}:${identityType}:${externalId}`;
+}
+
+function stateKey(userId: string, workspaceSlug: string, conversationKey: string): string {
+  return `${userId}:${workspaceSlug}:${conversationKey}`;
+}
+
+function dispatchKeyForReminder(userId: string, workspaceSlug: string, mode: string, dispatchKey: string, reminderId: string): string {
+  return `${userId}:${workspaceSlug}:${mode}:${dispatchKey}:${reminderId}`;
 }

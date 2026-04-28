@@ -1,3 +1,4 @@
+import { AiProvider, CanonicalType, Importance, KnowledgeKind, ReviewFindingSeverity } from '../contracts/enums.js';
 import { stripMarkdownFences } from '../domain/strings.js';
 
 export type ReviewAnalysis = {
@@ -6,7 +7,7 @@ export type ReviewAnalysis = {
   risks: string[];
   nextSteps: string[];
   reviewFindings: Array<{
-    severity: 'low' | 'medium' | 'high';
+    severity: ReviewFindingSeverity;
     file: string;
     summary: string;
     recommendation: string;
@@ -16,9 +17,9 @@ export type ReviewAnalysis = {
 export type ConversationExtraction = {
   rawText?: string;
   projectSlug?: string;
-  kind?: 'note' | 'bug' | 'summary' | 'article' | 'daily';
-  canonicalType?: 'event' | 'knowledge' | 'decision' | 'incident';
-  importance?: 'low' | 'medium' | 'high';
+  kind?: KnowledgeKind;
+  canonicalType?: CanonicalType;
+  importance?: Importance;
   tags?: string[];
   reminderDate?: string;
   reminderTime?: string;
@@ -31,7 +32,7 @@ export type KnowledgeAnswer = {
 };
 
 type ChatConfig = {
-  provider: 'openrouter' | 'openai' | 'none';
+  provider: AiProvider;
   baseUrl: string;
   model: string;
   apiKey: string;
@@ -42,7 +43,7 @@ async function runChatCompletion(
   systemPrompt: string,
   userContent: string,
 ): Promise<string> {
-  if (config.provider === 'none' || !config.apiKey || !config.model) return '';
+  if (config.provider === AiProvider.None || !config.apiKey || !config.model) return '';
   const response = await fetch(`${config.baseUrl.replace(/\/$/, '')}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -77,7 +78,7 @@ export async function generateReviewAnalysis(
     reviewFindings: [],
   };
 
-  if (config.provider === 'none' || !config.apiKey || !config.model) return fallback;
+  if (config.provider === AiProvider.None || !config.apiKey || !config.model) return fallback;
 
   const content = await runChatCompletion(
     config,
@@ -101,7 +102,9 @@ export async function generateReviewAnalysis(
           .map((item) => item as Record<string, unknown>)
           .filter((item) => item.summary)
           .map((item) => ({
-            severity: (['low', 'medium', 'high'].includes(String(item.severity)) ? String(item.severity) : 'medium') as 'low' | 'medium' | 'high',
+            severity: Object.values(ReviewFindingSeverity).includes(item.severity as ReviewFindingSeverity)
+              ? (item.severity as ReviewFindingSeverity)
+              : ReviewFindingSeverity.Medium,
             file: String(item.file || ''),
             summary: String(item.summary || ''),
             recommendation: String(item.recommendation || ''),

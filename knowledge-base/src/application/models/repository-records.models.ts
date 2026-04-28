@@ -1,3 +1,7 @@
+import type { CredentialRecordStatus, WebhookEventStatus } from '../../contracts/enums.js';
+
+export type { WebhookEventStatus };
+
 export type KbUser = {
   id: string;
   email: string;
@@ -13,7 +17,7 @@ export type IntegrationCredentialRecord = {
   userId: string;
   workspaceSlug: string;
   provider: string;
-  status: 'connected' | 'revoked';
+  status: CredentialRecordStatus;
   encryptedConfig: unknown;
   publicMetadata: Record<string, unknown>;
   createdAt: string;
@@ -77,13 +81,34 @@ export type NoteRecord = {
   links: string[];
 };
 
+export type AttachmentRecord = {
+  id: string;
+  userId: string;
+  noteId: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  contentBase64: string;
+  checksumSha256: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+};
+
+export type ConversationStateRecord = {
+  userId: string;
+  workspaceSlug: string;
+  conversationKey: string;
+  state: unknown;
+  updatedAt: string;
+};
+
 export type SaveProjectInput = ProjectRecord;
 
 export type SaveWorkspaceInput = WorkspaceRecord;
 
 export type SaveNoteInput = Omit<NoteRecord, 'id'> & { id?: string };
 
-export type WebhookEventStatus = 'rejected' | 'resolved' | 'processed' | 'failed';
+export type SaveAttachmentInput = Omit<AttachmentRecord, 'id' | 'userId' | 'createdAt'> & { id?: string };
 
 export type WebhookEventRecord = {
   id: string;

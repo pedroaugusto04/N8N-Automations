@@ -69,6 +69,7 @@ function reminderFromNote(record: NoteRecord): ReminderView | null {
     id: record.id,
     title: record.title,
     project: record.projectSlug,
+    workspace: record.workspaceSlug,
     status: record.status,
     reminderDate: String(record.metadata.reminderDate || ''),
     reminderTime: String(record.metadata.reminderTime || ''),

@@ -3,20 +3,18 @@ import crypto from 'node:crypto';
 import { BadRequestException, ConflictException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 
 import { readEnvironment } from '../adapters/environment.js';
+import {
+  CredentialRecordStatus,
+  ExternalIdentityProvider,
+  IntegrationProvider,
+  StoredIntegrationStatus,
+  integrationProviderValues,
+} from '../contracts/enums.js';
 import type { IntegrationCredentialRecord } from './models/repository-records.models.js';
 import { CredentialRepository, ExternalIdentityRepository } from './ports/repositories.js';
 
-export const integrationProviders = [
-  'telegram',
-  'whatsapp',
-  'evolution',
-  'ai-review',
-  'ai-conversation',
-  'github',
-  'github-app',
-] as const;
-
-export type IntegrationProvider = (typeof integrationProviders)[number];
+export { IntegrationProvider };
+export const integrationProviders = integrationProviderValues;
 
 export type EncryptedConfig = {
   iv: string;
@@ -29,7 +27,7 @@ export type StoredIntegration = {
   provider: IntegrationProvider;
   name: string;
   description: string;
-  status: 'connected' | 'missing' | 'revoked';
+  status: StoredIntegrationStatus;
   workspaceSlug: string;
   publicMetadata: Record<string, unknown>;
   maskedConfig: Record<string, string>;
@@ -38,13 +36,13 @@ export type StoredIntegration = {
 };
 
 const providerLabels: Record<IntegrationProvider, { name: string; description: string }> = {
-  telegram: { name: 'Telegram', description: 'Bot e chat usados para notificacoes e eventos operacionais.' },
-  whatsapp: { name: 'WhatsApp', description: 'Conta ou grupo autorizado para conversa e ingestao.' },
-  evolution: { name: 'Evolution API', description: 'Instancia Evolution usada como transporte do WhatsApp.' },
-  'ai-review': { name: 'AI Review', description: 'Provider, modelo e chave para reviews de codigo.' },
-  'ai-conversation': { name: 'AI Conversation', description: 'Provider, modelo e chave para conversa e respostas.' },
-  github: { name: 'GitHub Token', description: 'Token pessoal ou fine-grained para leitura de repositorios.' },
-  'github-app': { name: 'GitHub App', description: 'App, instalacao e webhook por workspace.' },
+  [IntegrationProvider.Telegram]: { name: 'Telegram', description: 'Bot e chat usados para notificacoes e eventos operacionais.' },
+  [IntegrationProvider.Whatsapp]: { name: 'WhatsApp', description: 'Conta ou grupo autorizado para conversa e ingestao.' },
+  [IntegrationProvider.Evolution]: { name: 'Evolution API', description: 'Instancia Evolution usada como transporte do WhatsApp.' },
+  [IntegrationProvider.AiReview]: { name: 'AI Review', description: 'Provider, modelo e chave para reviews de codigo.' },
+  [IntegrationProvider.AiConversation]: { name: 'AI Conversation', description: 'Provider, modelo e chave para conversa e respostas.' },
+  [IntegrationProvider.Github]: { name: 'GitHub Token', description: 'Token pessoal ou fine-grained para leitura de repositorios.' },
+  [IntegrationProvider.GithubApp]: { name: 'GitHub App', description: 'App, instalacao e webhook por workspace.' },
 };
 
 function isProvider(value: string): value is IntegrationProvider {
@@ -89,7 +87,7 @@ function publicCredential(record: IntegrationCredentialRecord | null, provider: 
       provider,
       name: label.name,
       description: label.description,
-      status: 'missing',
+      status: StoredIntegrationStatus.Missing,
       workspaceSlug,
       publicMetadata: {},
       maskedConfig: {},
@@ -102,7 +100,7 @@ function publicCredential(record: IntegrationCredentialRecord | null, provider: 
     provider,
     name: label.name,
     description: label.description,
-    status: record.status === 'connected' && !record.revokedAt ? 'connected' : 'revoked',
+    status: record.status === CredentialRecordStatus.Connected && !record.revokedAt ? StoredIntegrationStatus.Connected : StoredIntegrationStatus.Revoked,
     workspaceSlug,
     publicMetadata: record.publicMetadata,
     maskedConfig: Object.fromEntries(configKeysFromMetadata(record.publicMetadata).map((key) => [key, '********'])),
@@ -124,23 +122,23 @@ function sanitizePublicMetadata(value: unknown): Record<string, unknown> {
   );
 }
 
-const allowedExternalIdentities: Partial<Record<IntegrationProvider, Array<'telegram' | 'whatsapp' | 'github' | 'github-app'>>> = {
-  telegram: ['telegram'],
-  whatsapp: ['whatsapp'],
-  evolution: ['whatsapp'],
-  github: ['github'],
-  'github-app': ['github-app'],
+const allowedExternalIdentities: Partial<Record<IntegrationProvider, ExternalIdentityProvider[]>> = {
+  [IntegrationProvider.Telegram]: [ExternalIdentityProvider.Telegram],
+  [IntegrationProvider.Whatsapp]: [ExternalIdentityProvider.Whatsapp],
+  [IntegrationProvider.Evolution]: [ExternalIdentityProvider.Whatsapp],
+  [IntegrationProvider.Github]: [ExternalIdentityProvider.Github],
+  [IntegrationProvider.GithubApp]: [ExternalIdentityProvider.GithubApp],
 };
 
 function canAttachExternalIdentity(provider: IntegrationProvider, identityProvider: string): boolean {
-  return Boolean(allowedExternalIdentities[provider]?.includes(identityProvider as 'telegram' | 'whatsapp' | 'github' | 'github-app'));
+  return Boolean(allowedExternalIdentities[provider]?.includes(identityProvider as ExternalIdentityProvider));
 }
 
 function defaultIdentityType(provider: string): string {
-  if (provider === 'telegram') return 'chat_id';
-  if (provider === 'whatsapp') return 'jid';
-  if (provider === 'github-app') return 'installation_id';
-  if (provider === 'github') return 'account_id';
+  if (provider === ExternalIdentityProvider.Telegram) return 'chat_id';
+  if (provider === ExternalIdentityProvider.Whatsapp) return 'jid';
+  if (provider === ExternalIdentityProvider.GithubApp) return 'installation_id';
+  if (provider === ExternalIdentityProvider.Github) return 'account_id';
   return 'external_id';
 }
 
@@ -179,7 +177,7 @@ export class IntegrationCredentialService {
       userId: input.userId,
       workspaceSlug,
       provider: input.provider,
-      status: 'connected',
+      status: CredentialRecordStatus.Connected,
       encryptedConfig: encryptConfig(config),
       publicMetadata,
     });
@@ -236,7 +234,7 @@ export class IntegrationCredentialService {
     }
     if (!userId) throw new NotFoundException('identity_not_found');
     const record = await this.credentials.findCredential(userId, input.workspaceSlug || 'default', input.provider);
-    if (!record || record.status !== 'connected' || record.revokedAt) throw new NotFoundException('credential_not_found');
+    if (!record || record.status !== CredentialRecordStatus.Connected || record.revokedAt) throw new NotFoundException('credential_not_found');
     return {
       ok: true as const,
       userId,

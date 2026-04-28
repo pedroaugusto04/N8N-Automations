@@ -1,30 +1,18 @@
-import path from 'node:path';
+import { AiProvider } from '../contracts/enums.js';
 
 export type RuntimeEnvironment = {
-  vaultPath: string;
-  archivePath: string;
-  manifestPath: string;
-  workspacesManifestPath: string;
   webhookSecret: string;
   githubWebhookSecret: string;
-  attachmentMaxVaultBytes: number;
   conversationTimeoutMs: number;
-  reviewAiProvider: 'openrouter' | 'openai' | 'none';
+  reviewAiProvider: AiProvider;
   reviewAiBaseUrl: string;
   reviewAiModel: string;
   reviewAiApiKey: string;
-  conversationAiProvider: 'openrouter' | 'openai' | 'none';
+  conversationAiProvider: AiProvider;
   conversationAiBaseUrl: string;
   conversationAiModel: string;
   conversationAiApiKey: string;
   githubApiToken: string;
-  enableGitPush: boolean;
-  gitBatchMode: boolean;
-  vaultRemoteUrl: string;
-  gitUserName: string;
-  gitUserEmail: string;
-  gitPushUsername: string;
-  gitPushToken: string;
   allowedGroupId: string;
   publicBaseUrl: string;
   allowedOrigins: string[];
@@ -54,15 +42,9 @@ export type RuntimeEnvironment = {
 };
 
 export function readEnvironment(env = process.env): RuntimeEnvironment {
-  const basePath = process.cwd();
   return {
-    vaultPath: env.KB_VAULT_PATH || path.resolve(basePath, '../knowledge-vault'),
-    archivePath: env.KB_ARCHIVE_PATH || path.resolve(basePath, '../knowledge-vault-archive'),
-    manifestPath: env.KB_PROJECTS_MANIFEST || path.join(basePath, 'projects.json'),
-    workspacesManifestPath: env.KB_WORKSPACES_MANIFEST || path.join(basePath, 'workspaces.json'),
     webhookSecret: String(env.KB_WEBHOOK_SECRET || '').trim(),
     githubWebhookSecret: String(env.KB_GITHUB_APP_WEBHOOK_SECRET || '').trim(),
-    attachmentMaxVaultBytes: Number(env.KB_ATTACHMENT_MAX_VAULT_BYTES || 10 * 1024 * 1024),
     conversationTimeoutMs: Number(env.WPP_CONVERSATION_TIMEOUT_MS || 600_000),
     reviewAiProvider: (String(env.KB_REVIEW_AI_PROVIDER || 'openrouter').trim().toLowerCase() as RuntimeEnvironment['reviewAiProvider']),
     reviewAiBaseUrl: String(env.KB_REVIEW_AI_BASE_URL || 'https://openrouter.ai/api/v1').trim(),
@@ -73,13 +55,6 @@ export function readEnvironment(env = process.env): RuntimeEnvironment {
     conversationAiModel: String(env.KB_CONVERSATION_AI_MODEL || env.KB_REVIEW_AI_MODEL || 'openrouter/auto').trim(),
     conversationAiApiKey: String(env.KB_CONVERSATION_AI_API_KEY || env.KB_REVIEW_AI_API_KEY || '').trim(),
     githubApiToken: String(env.KB_GITHUB_API_TOKEN || '').trim(),
-    enableGitPush: String(env.KB_ENABLE_GIT_PUSH || 'false').toLowerCase() === 'true',
-    gitBatchMode: String(env.KB_GIT_BATCH_MODE || 'true').toLowerCase() === 'true',
-    vaultRemoteUrl: String(env.KB_VAULT_REMOTE_URL || '').trim(),
-    gitUserName: String(env.KB_VAULT_GIT_USER_NAME || 'knowledge-bot').trim(),
-    gitUserEmail: String(env.KB_VAULT_GIT_USER_EMAIL || 'knowledge-bot@example.local').trim(),
-    gitPushUsername: String(env.KB_VAULT_GIT_PUSH_USERNAME || '').trim(),
-    gitPushToken: String(env.KB_VAULT_GIT_PUSH_TOKEN || '').trim(),
     allowedGroupId: String(env.WPP_KB_GROUP_JID || '').trim(),
     publicBaseUrl: String(env.KB_PUBLIC_BASE_URL || env.WEBHOOK_URL || '').trim().replace(/\/$/, ''),
     allowedOrigins: String(env.KB_ALLOWED_ORIGINS || '')

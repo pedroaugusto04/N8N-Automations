@@ -1,6 +1,7 @@
 import { generateReviewAnalysis } from '../adapters/ai.js';
 import type { RuntimeEnvironment } from '../adapters/environment.js';
 import { fetchComparePayload, verifyGithubSignature } from '../adapters/github.js';
+import { CanonicalType, EventType, KnowledgeKind, KnowledgeStatus, SourceChannel } from '../contracts/enums.js';
 import { ingestPayloadSchema } from '../contracts/ingest.js';
 import { defaultImportance } from '../domain/classification.js';
 import { slugify, trimText } from '../domain/strings.js';
@@ -98,14 +99,14 @@ export async function buildGithubReviewEvent(
   return ingestPayloadSchema.parse({
     schemaVersion: 1,
     source: {
-      channel: 'github-push',
+      channel: SourceChannel.GithubPush,
       system: 'github-webhook',
       actor: String(body.pusher?.name || ''),
       conversationId: repoFullName,
       correlationId: `push:${repoFullName}:${body.after || Date.now()}`,
     },
     event: {
-      type: 'code_review',
+      type: EventType.CodeReview,
       occurredAt: String(body.head_commit?.timestamp || new Date().toISOString()),
       projectSlug: normalizeProjectSlug(body),
     },
@@ -122,10 +123,10 @@ export async function buildGithubReviewEvent(
       },
     },
     classification: {
-      kind: 'summary',
-      canonicalType: 'knowledge',
-      importance: defaultImportance('summary'),
-      status: 'active',
+      kind: KnowledgeKind.Summary,
+      canonicalType: CanonicalType.Knowledge,
+      importance: defaultImportance(KnowledgeKind.Summary),
+      status: KnowledgeStatus.Active,
       tags: ['code-review', normalizeProjectSlug(body)],
       decisionFlag: false,
     },

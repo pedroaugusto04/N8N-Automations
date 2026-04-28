@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { slugify } from '../domain/strings.js';
+import { OnboardingOperation } from './enums.js';
 
 const onboardingProjectSchema = z
   .object({
@@ -19,7 +20,7 @@ const onboardingProjectSchema = z
 
 export const onboardingInputSchema = z
   .object({
-    operation: z.enum(['upsert', 'status']).default('status'),
+    operation: z.nativeEnum(OnboardingOperation).default(OnboardingOperation.Status),
     workspaceSlug: z.string().min(1),
     displayName: z.string().default(''),
     whatsappGroupJid: z.string().default(''),

@@ -1,3 +1,4 @@
+import { CredentialRecordStatus } from '../../contracts/enums.js';
 import type {
   ExternalIdentityRecord,
   IntegrationCredentialRecord,
@@ -36,7 +37,7 @@ export function credentialFromRow(row: Row): IntegrationCredentialRecord {
     userId: String(row.user_id),
     workspaceSlug: String(row.workspace_slug),
     provider: String(row.provider),
-    status: String(row.status) === 'revoked' ? 'revoked' : 'connected',
+    status: String(row.status) === CredentialRecordStatus.Revoked ? CredentialRecordStatus.Revoked : CredentialRecordStatus.Connected,
     encryptedConfig: row.encrypted_config,
     publicMetadata: (row.public_metadata || {}) as Record<string, unknown>,
     createdAt: nowIso(row.created_at),

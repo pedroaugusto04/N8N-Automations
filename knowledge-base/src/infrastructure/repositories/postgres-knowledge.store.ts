@@ -5,7 +5,10 @@ import pg from 'pg';
 
 import { readEnvironment } from '../../adapters/environment.js';
 import { KnowledgeStore } from '../../application/knowledge-store.js';
+import { CredentialRecordStatus, type ReminderDispatchMode } from '../../contracts/enums.js';
 import type {
+  AttachmentRecord,
+  ConversationStateRecord,
   ExternalIdentityRecord,
   IntegrationCredentialRecord,
   NoteRecord,
@@ -163,10 +166,33 @@ export class PostgresKnowledgeStore extends KnowledgeStore {
         mime_type text not null default 'application/octet-stream',
         size_bytes bigint not null default 0,
         storage_key text not null default '',
+        content_base64 text not null default '',
+        checksum_sha256 text not null default '',
         metadata jsonb not null default '{}'::jsonb,
         created_at timestamptz not null default now()
       );
+      alter table kb_attachments add column if not exists content_base64 text not null default '';
+      alter table kb_attachments add column if not exists checksum_sha256 text not null default '';
       create index if not exists kb_attachments_user_note_idx on kb_attachments (user_id, note_id);
+
+      create table if not exists kb_conversation_states (
+        user_id uuid not null references kb_users(id) on delete cascade,
+        workspace_slug text not null,
+        conversation_key text not null,
+        state jsonb not null default '{}'::jsonb,
+        updated_at timestamptz not null default now(),
+        primary key (user_id, workspace_slug, conversation_key)
+      );
+
+      create table if not exists kb_reminder_dispatch_state (
+        user_id uuid not null references kb_users(id) on delete cascade,
+        workspace_slug text not null,
+        mode text not null,
+        dispatch_key text not null,
+        reminder_id uuid not null,
+        sent_at timestamptz not null default now(),
+        primary key (user_id, workspace_slug, mode, dispatch_key, reminder_id)
+      );
 
       create table if not exists kb_webhook_events (
         id uuid primary key,
@@ -247,10 +273,10 @@ export class PostgresKnowledgeStore extends KnowledgeStore {
   async revokeCredential(userId: string, workspaceSlug: string, provider: string, encryptedConfig: unknown) {
     const result = await this.getPool().query(
       `update kb_integration_credentials
-       set status = 'revoked', encrypted_config = $4::jsonb, revoked_at = now(), updated_at = now()
+       set status = $4, encrypted_config = $5::jsonb, revoked_at = now(), updated_at = now()
        where user_id = $1 and workspace_slug = $2 and provider = $3
        returning *`,
-      [userId, workspaceSlug, provider, JSON.stringify(encryptedConfig)],
+      [userId, workspaceSlug, provider, CredentialRecordStatus.Revoked, JSON.stringify(encryptedConfig)],
     );
     return result.rows[0] ? credentialFromRow(result.rows[0]) : null;
   }
@@ -437,6 +463,40 @@ export class PostgresKnowledgeStore extends KnowledgeStore {
     return noteFromRow(result.rows[0]);
   }
 
+  async saveAttachment(userId: string, input: {
+    id?: string;
+    noteId: string;
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number;
+    contentBase64: string;
+    checksumSha256: string;
+    metadata: Record<string, unknown>;
+  }) {
+    const result = await this.getPool().query(
+      `insert into kb_attachments (id, user_id, note_id, file_name, mime_type, size_bytes, storage_key, content_base64, checksum_sha256, metadata)
+       values ($1, $2, $3, $4, $5, $6, '', $7, $8, $9::jsonb)
+       returning *`,
+      [
+        input.id || crypto.randomUUID(),
+        userId,
+        input.noteId,
+        input.fileName,
+        input.mimeType,
+        input.sizeBytes,
+        input.contentBase64,
+        input.checksumSha256,
+        JSON.stringify(input.metadata || {}),
+      ],
+    );
+    return attachmentFromRow(result.rows[0]);
+  }
+
+  async listAttachments(userId: string, noteId: string) {
+    const result = await this.getPool().query('select * from kb_attachments where user_id = $1 and note_id = $2 order by created_at', [userId, noteId]);
+    return result.rows.map(attachmentFromRow);
+  }
+
   async recordWebhookEvent(input: {
     provider: string;
     eventType: string;
@@ -465,4 +525,76 @@ export class PostgresKnowledgeStore extends KnowledgeStore {
     );
     return webhookEventFromRow(result.rows[0]);
   }
+
+  async get(userId: string, workspaceSlug: string, conversationKey: string): Promise<ConversationStateRecord | null> {
+    const result = await this.getPool().query(
+      'select * from kb_conversation_states where user_id = $1 and workspace_slug = $2 and conversation_key = $3 limit 1',
+      [userId, workspaceSlug, conversationKey],
+    );
+    return result.rows[0] ? conversationStateFromRow(result.rows[0]) : null;
+  }
+
+  async upsert(userId: string, workspaceSlug: string, conversationKey: string, state: unknown) {
+    const result = await this.getPool().query(
+      `insert into kb_conversation_states (user_id, workspace_slug, conversation_key, state)
+       values ($1, $2, $3, $4::jsonb)
+       on conflict (user_id, workspace_slug, conversation_key)
+       do update set state = excluded.state, updated_at = now()
+       returning *`,
+      [userId, workspaceSlug, conversationKey, JSON.stringify(state || {})],
+    );
+    return conversationStateFromRow(result.rows[0]);
+  }
+
+  async clear(userId: string, workspaceSlug: string, conversationKey: string) {
+    await this.getPool().query('delete from kb_conversation_states where user_id = $1 and workspace_slug = $2 and conversation_key = $3', [
+      userId,
+      workspaceSlug,
+      conversationKey,
+    ]);
+  }
+
+  async hasSent(userId: string, workspaceSlug: string, mode: ReminderDispatchMode, dispatchKey: string, reminderId: string) {
+    const result = await this.getPool().query(
+      `select 1 from kb_reminder_dispatch_state
+       where user_id = $1 and workspace_slug = $2 and mode = $3 and dispatch_key = $4 and reminder_id = $5
+       limit 1`,
+      [userId, workspaceSlug, mode, dispatchKey, reminderId],
+    );
+    return Boolean(result.rows[0]);
+  }
+
+  async markSent(userId: string, workspaceSlug: string, mode: ReminderDispatchMode, dispatchKey: string, reminderId: string) {
+    await this.getPool().query(
+      `insert into kb_reminder_dispatch_state (user_id, workspace_slug, mode, dispatch_key, reminder_id)
+       values ($1, $2, $3, $4, $5)
+       on conflict (user_id, workspace_slug, mode, dispatch_key, reminder_id) do nothing`,
+      [userId, workspaceSlug, mode, dispatchKey, reminderId],
+    );
+  }
+}
+
+function attachmentFromRow(row: Record<string, unknown>): AttachmentRecord {
+  return {
+    id: String(row.id),
+    userId: String(row.user_id),
+    noteId: String(row.note_id || ''),
+    fileName: String(row.file_name || ''),
+    mimeType: String(row.mime_type || 'application/octet-stream'),
+    sizeBytes: Number(row.size_bytes || 0),
+    contentBase64: String(row.content_base64 || ''),
+    checksumSha256: String(row.checksum_sha256 || ''),
+    metadata: (row.metadata || {}) as Record<string, unknown>,
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at || ''),
+  };
+}
+
+function conversationStateFromRow(row: Record<string, unknown>): ConversationStateRecord {
+  return {
+    userId: String(row.user_id),
+    workspaceSlug: String(row.workspace_slug),
+    conversationKey: String(row.conversation_key),
+    state: row.state || {},
+    updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at || ''),
+  };
 }

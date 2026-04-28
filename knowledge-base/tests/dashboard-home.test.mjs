@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildDashboardHome } from '../dist/application/use-cases/dashboard.use-cases.js';
+import { buildDashboardHome } from '../dist/application/use-cases/index.js';
 
 const projects = [
   { projectSlug: 'alpha', displayName: 'Alpha', repoFullName: 'acme/alpha', workspaceSlug: 'default', aliases: [], defaultTags: [], enabled: true },
@@ -55,6 +55,7 @@ test('builds dashboard home metrics and keeps dashboard arrays independent', () 
       id: 'reminder-overdue',
       title: 'Cobrar rollback',
       project: 'alpha',
+      workspace: 'default',
       status: 'open',
       reminderDate: '2026-04-26',
       reminderTime: '09:00',
@@ -66,6 +67,7 @@ test('builds dashboard home metrics and keeps dashboard arrays independent', () 
       id: 'reminder-upcoming',
       title: 'Validar deploy',
       project: 'beta',
+      workspace: 'default',
       status: 'active',
       reminderDate: '2026-04-27',
       reminderTime: '16:00',
@@ -77,6 +79,7 @@ test('builds dashboard home metrics and keeps dashboard arrays independent', () 
       id: 'reminder-done',
       title: 'Feito',
       project: 'beta',
+      workspace: 'default',
       status: 'done',
       reminderDate: '2026-04-25',
       reminderTime: '09:00',

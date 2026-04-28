@@ -8,10 +8,9 @@
 - `src/application`: casos de uso (`ingest`, `github review`, `reminders`, `conversation`, `onboarding`, `query`) e ports
 - `src/infrastructure`: repositories/adapters concretos; a API HTTP usa Postgres como unica fonte de dados do produto
 - `src/interfaces/http`: controllers e DTOs NestJS
-- `src/adapters`: AI, GitHub, git, IO e ambiente legados/compartilhados
-- `src/cli`: entrypoints executáveis pelo n8n ou por outros runners
+- `src/adapters`: AI, GitHub, IO e ambiente compartilhados
 - `frontend/`: aplicação React + Vite que consome a API real
-- `workflows/`: adapters opcionais do n8n
+- `workflows/`: adapters opcionais do n8n via HTTP
 - `tests/`: contratos, conversa, persistência, reminders, review e smoke dos adapters
 
 ## Capacidades novas
@@ -49,13 +48,9 @@ Entrada padrão:
 
 Entry points:
 
-- `dist/cli/onboarding.js`
+- navegador autenticado: `POST /api/onboarding`
+- n8n interno: `POST /api/internal/n8n/onboarding`
 - workflow opcional `workflows/kb-onboarding.json`
-
-Manifestos usados:
-
-- `projects.json`
-- `workspaces.json`
 
 ### 2. Consulta sobre a base
 
@@ -79,7 +74,8 @@ Entrada padrão:
 
 Entry points:
 
-- `dist/cli/query.js`
+- navegador autenticado: `GET|POST /api/query`
+- n8n interno: `POST /api/internal/n8n/query`
 - workflow opcional `workflows/kb-query.json`
 
 No WhatsApp, a consulta pode ser feita sem abrir o fluxo de captura usando comandos explícitos:
@@ -104,7 +100,7 @@ Fluxo operacional:
 
 - mensagem chega via WhatsApp
 - adapter baixa mídia se existir
-- CLI de conversa interpreta o texto com OpenRouter
+- API interna de conversa interpreta o texto com OpenRouter
 - o core pergunta só o que falta
 - ao confirmar, o core gera o payload canonico e persiste em Postgres
 
@@ -172,7 +168,7 @@ O backend usa login local com `kb_users`, senha via `crypto.scrypt` e JWT statel
 
 O admin inicial é criado por `KB_ADMIN_EMAIL` e `KB_ADMIN_PASSWORD`. Configure também `KB_DATABASE_URL`, `KB_JWT_ACCESS_SECRET`, `KB_JWT_REFRESH_SECRET`, `KB_CREDENTIALS_ENCRYPTION_KEY` (base64 de 32 bytes), `KB_INTERNAL_SERVICE_TOKEN`, `KB_ALLOWED_ORIGINS`, `KB_BODY_LIMIT` e `KB_TRUST_PROXY` quando estiver atrás de proxy.
 
-Postgres é a fonte de dados da API HTTP multiusuário. Usuários novos começam sem workspaces, projetos ou notas; esses registros são criados quando o usuário configura integrações ou quando uma ingestão autenticada/webhook resolvido grava dados. As tabelas principais são `kb_users`, `kb_workspaces`, `kb_projects`, `kb_notes`, `kb_note_links`, `kb_attachments`, `kb_external_identities`, `kb_integration_credentials` e `kb_webhook_events`.
+Postgres é a fonte de dados da API HTTP multiusuário. Usuários novos começam sem workspaces, projetos ou notas; esses registros são criados quando o usuário configura integrações ou quando uma ingestão autenticada/webhook resolvido grava dados. As tabelas principais são `kb_users`, `kb_workspaces`, `kb_projects`, `kb_notes`, `kb_note_links`, `kb_attachments`, `kb_conversation_states`, `kb_reminder_dispatch_state`, `kb_external_identities`, `kb_integration_credentials` e `kb_webhook_events`.
 
 O frontend expõe `/settings/integrations` para salvar, mascarar e revogar credenciais por `user + workspace + provider`. Segredos são gravados em `kb_integration_credentials.encrypted_config` com AES-256-GCM e nunca são retornados nas respostas do navegador. Ao revogar uma credencial, o backend substitui o payload criptografado por um marcador sem segredo e mantém apenas o status/histórico de revogação.
 
@@ -193,20 +189,17 @@ Endpoints principais:
 - `PUT /api/integrations/:provider`
 - `DELETE /api/integrations/:provider`
 - `POST /api/internal/integrations/:provider/resolve`
+- `POST /api/internal/n8n/ingest`
+- `POST /api/internal/n8n/query`
+- `POST /api/internal/n8n/conversation`
+- `GET /api/internal/n8n/reminders/dispatch`
+- `POST /api/internal/n8n/reminders/mark-sent`
 
 Endpoints mutáveis de navegador validam `Origin`/`Referer`. A API interna exige `Authorization: Bearer ${KB_INTERNAL_SERVICE_TOKEN}` e retorna o segredo descriptografado somente para o provider solicitado.
 
-## CLIs principais
+## Persistência
 
-- `dist/cli/ingest.js`
-- `dist/cli/conversation.js`
-- `dist/cli/github-push.js`
-- `dist/cli/onboarding.js`
-- `dist/cli/query.js`
-- `dist/cli/reminders.js`
-- `dist/cli/batch-flush.js`
-
-Observacao: a API do produto nao usa filesystem/vault como persistencia. CLIs antigos que ainda escrevem markdown existem apenas como adapters/rotinas legadas ate serem removidos ou reimplementados sobre os mesmos services Postgres da API.
+A persistência suportada é Postgres. O backend não importa dados antigos de markdown e não grava vault em disco. Anexos são persistidos em `kb_attachments` com conteúdo e checksum; estado de conversa fica em `kb_conversation_states`; controle de disparo de lembretes fica em `kb_reminder_dispatch_state`.
 
 ## Build e testes
 
@@ -247,6 +240,11 @@ Endpoints HTTP principais:
 - `POST /api/conversation`
 - `POST /api/webhooks/github/push`
 - `POST /api/webhooks/whatsapp`
+- `POST /api/internal/n8n/ingest`
+- `POST /api/internal/n8n/query`
+- `POST /api/internal/n8n/conversation`
+- `GET /api/internal/n8n/reminders/dispatch`
+- `POST /api/internal/n8n/reminders/mark-sent`
 
 ## Workflows opcionais
 
@@ -254,7 +252,7 @@ Os adapters em `knowledge-base/workflows/` fazem apenas:
 
 - receber webhook
 - transformar payload de borda
-- chamar CLI do core
+- chamar a API HTTP interna do core com `Authorization: Bearer $KB_INTERNAL_SERVICE_TOKEN`
 - enviar resposta para WhatsApp/Telegram
 
 Workflows adicionais disponíveis:

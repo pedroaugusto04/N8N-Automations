@@ -1,11 +1,13 @@
 import { Injectable } from '@nestjs/common';
 
 import { readEnvironment, type RuntimeEnvironment } from '../adapters/environment.js';
+import { AiProvider, IntegrationProvider, IntegrationSetupStatus } from '../contracts/enums.js';
 import type { Project } from '../domain/projects.js';
 import type { Workspace } from '../domain/workspaces.js';
 import { ContentRepository } from './ports/repositories.js';
+import { absoluteUrl, configuredEnv, link, missingEnv, secretConfigured, statusFromFlags, workspaceRepos } from './utils/integration-status.utils.js';
 
-export type IntegrationStatusValue = 'connected' | 'partial' | 'missing';
+export type IntegrationStatusValue = IntegrationSetupStatus;
 
 export type IntegrationLink = {
   label: string;
@@ -25,46 +27,6 @@ export type IntegrationStatus = {
   checklist: string[];
   warnings: string[];
 };
-
-function configuredEnv(env: Record<string, boolean>): string[] {
-  return Object.entries(env)
-    .filter(([, configured]) => configured)
-    .map(([name]) => name);
-}
-
-function missingEnv(env: Record<string, boolean>): string[] {
-  return Object.entries(env)
-    .filter(([, configured]) => !configured)
-    .map(([name]) => name);
-}
-
-function statusFromFlags(flags: boolean[]): IntegrationStatusValue {
-  if (flags.every(Boolean)) return 'connected';
-  if (flags.some(Boolean)) return 'partial';
-  return 'missing';
-}
-
-function absoluteUrl(baseUrl: string, pathname: string): string {
-  if (!baseUrl) return pathname;
-  const normalizedPath = pathname.startsWith('/') ? pathname : `/${pathname}`;
-  return `${baseUrl}${normalizedPath}`;
-}
-
-function link(label: string, url: string, external = true): IntegrationLink {
-  return { label, url, external };
-}
-
-function workspaceRepos(workspace: Workspace | undefined, projects: Project[]): string[] {
-  const workspaceProjectRepos = projects
-    .filter((project) => !workspace || project.workspaceSlug === workspace.workspaceSlug || workspace.projectSlugs.includes(project.projectSlug))
-    .map((project) => project.repoFullName)
-    .filter(Boolean);
-  return Array.from(new Set([...(workspace?.githubRepos || []), ...workspaceProjectRepos]));
-}
-
-function secretConfigured(value: string): boolean {
-  return Boolean(value.trim());
-}
 
 export function buildIntegrationStatuses(input: {
   environment: RuntimeEnvironment;
@@ -118,8 +80,8 @@ export function buildIntegrationStatuses(input: {
   };
   const telegramChat = Boolean(environment.telegramChatId) || workspaceTelegramChat;
 
-  const reviewAiActive = environment.reviewAiProvider !== 'none';
-  const conversationAiActive = environment.conversationAiProvider !== 'none';
+  const reviewAiActive = environment.reviewAiProvider !== AiProvider.None;
+  const conversationAiActive = environment.conversationAiProvider !== AiProvider.None;
   const aiEnv = {
     KB_REVIEW_AI_PROVIDER: reviewAiActive,
     KB_REVIEW_AI_BASE_URL: reviewAiActive ? Boolean(environment.reviewAiBaseUrl) : true,
@@ -137,7 +99,7 @@ export function buildIntegrationStatuses(input: {
     workspaceSlug,
     integrations: [
       {
-        id: 'github-app',
+        id: IntegrationProvider.GithubApp,
         name: 'GitHub App',
         description: 'Instalacao do app, webhook assinado e token de leitura para reviews de push.',
         status: statusFromFlags(githubFlags),
@@ -173,7 +135,7 @@ export function buildIntegrationStatuses(input: {
         warnings: !environment.publicBaseUrl ? ['KB_PUBLIC_BASE_URL ausente: exibindo paths relativos, nao URLs absolutas.'] : [],
       },
       {
-        id: 'whatsapp',
+        id: IntegrationProvider.Whatsapp,
         name: 'WhatsApp',
         description: 'Pairing ou Evolution API para captura e resposta no grupo autorizado.',
         status: statusFromFlags([whatsappTransport, whatsappGroup]),
@@ -195,7 +157,7 @@ export function buildIntegrationStatuses(input: {
         ].filter(Boolean),
       },
       {
-        id: 'telegram',
+        id: IntegrationProvider.Telegram,
         name: 'Telegram',
         description: 'Bot e chat usados para notificacoes de ingest, reviews e falhas operacionais.',
         status: statusFromFlags([telegramEnv.KB_TELEGRAM_BOT_TOKEN, telegramChat]),

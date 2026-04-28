@@ -1,4 +1,6 @@
-export type IntegrationStatusValue = 'connected' | 'partial' | 'missing';
+import type { IntegrationSetupStatus, StoredIntegrationStatus } from '../enums';
+
+export type IntegrationStatusValue = IntegrationSetupStatus;
 
 export type IntegrationStatus = {
   id: string;
@@ -27,7 +29,7 @@ export type UserIntegration = {
   provider: string;
   name: string;
   description: string;
-  status: 'connected' | 'missing' | 'revoked';
+  status: StoredIntegrationStatus;
   workspaceSlug: string;
   publicMetadata: Record<string, unknown>;
   maskedConfig: Record<string, string>;

@@ -1,10 +1,6 @@
-import fs from 'node:fs/promises';
-
 export async function readJsonInput(fileArg = ''): Promise<unknown> {
   if (fileArg) {
-    const raw = await fs.readFile(fileArg, 'utf8');
-    const decoded = Buffer.from(raw.trim(), 'base64').toString('utf8');
-    return JSON.parse(decoded);
+    throw new Error('file_input_removed_use_http_api');
   }
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) {

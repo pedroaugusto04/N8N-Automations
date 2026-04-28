@@ -1,3 +1,4 @@
+import { HomePriorityType, HomeTargetKind } from '../enums';
 import type { Dashboard, DashboardPayload } from '../models/dashboard';
 import type { DashboardHomeSummary, HomePriority } from '../models/dashboard-home';
 import type { NoteSummary } from '../models/note';
@@ -47,7 +48,7 @@ function projectLabel(projects: Project[], slug: string) {
 }
 
 function noteTarget(note: NoteSummary) {
-  return { kind: 'note' as const, id: note.id, path: note.path };
+  return { kind: HomeTargetKind.Note, id: note.id, path: note.path };
 }
 
 function findNoteByPath(notes: NoteSummary[], path: string) {
@@ -90,33 +91,33 @@ function buildHomeFallback(payload: DashboardPayload): DashboardHomeSummary {
       const relatedNote = findNoteByPath(notes, reminder.sourceNotePath) || findNoteByPath(notes, reminder.relativePath);
       return {
         id: `reminder:${reminder.id}`,
-        type: 'reminder' as const,
+        type: HomePriorityType.Reminder,
         title: reminder.title,
         project: reminder.project,
         date: reminder.reminderAt || reminder.reminderDate,
         description: timestamp && timestamp < startOfDay(now.getTime()) ? 'Lembrete vencido' : 'Lembrete aberto',
         status: reminder.status,
-        target: relatedNote ? noteTarget(relatedNote) : { kind: 'note' as const, path: reminder.sourceNotePath || reminder.relativePath },
+        target: relatedNote ? noteTarget(relatedNote) : { kind: HomeTargetKind.Note, path: reminder.sourceNotePath || reminder.relativePath },
         rank: timestamp && timestamp < startOfDay(now.getTime()) ? 0 : 1,
         timestamp: timestamp || Number.MAX_SAFE_INTEGER,
       };
     }),
     ...openHighFindings.map(({ review, finding }, index) => ({
       id: `finding:${review.id}:${index}`,
-      type: 'finding' as const,
+      type: HomePriorityType.Finding,
       title: review.title,
       project: review.project,
       date: review.date,
       description: finding.file ? `${finding.summary} (${finding.file})` : finding.summary,
       severity: finding.severity,
       status: finding.status,
-      target: { kind: 'review' as const, id: review.id, path: review.generatedNotePath },
+      target: { kind: HomeTargetKind.Review, id: review.id, path: review.generatedNotePath },
       rank: 2,
       timestamp: parseTimestamp(review.date) || Number.MAX_SAFE_INTEGER,
     })),
     ...recentNotes.filter((note) => ['incident', 'followup'].includes(note.type) && isOpen(note.status)).map((note) => ({
       id: `note:${note.id}`,
-      type: note.type === 'incident' ? ('incident' as const) : ('followup' as const),
+      type: note.type === HomePriorityType.Incident ? HomePriorityType.Incident : HomePriorityType.Followup,
       title: note.title,
       project: note.project,
       date: note.date,

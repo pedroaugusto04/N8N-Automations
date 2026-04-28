@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 
 import { MemoryKnowledgeStore } from '../dist/application/knowledge-store.js';
-import { BuildDashboardUseCase, HandleGithubPushUseCase, IngestEntryUseCase } from '../dist/application/use-cases/dashboard.use-cases.js';
+import { BuildDashboardUseCase, HandleGithubPushUseCase, IngestEntryUseCase } from '../dist/application/use-cases/index.js';
 import { PostgresContentQueryRepository } from '../dist/infrastructure/repositories/postgres-content.repository.js';
 
 function configureEnv() {
