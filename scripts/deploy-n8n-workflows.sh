@@ -18,14 +18,13 @@ while IFS= read -r -d '' file; do
     WORKFLOW_FILES+=("$file")
   fi
 done < <(
-  find . -type f -name '*.json' \
-    ! -path './node_modules/*' \
-    ! -path './.git/*' \
-    ! -path './backups/*' \
+  find . \
+    \( -path './.git' -o -path './node_modules' -o -path './backups' -o -path './evolution-postgres-data' \) -prune \
+    -o -type f -name '*.json' \
     ! -name 'package.json' \
     ! -name 'package-lock.json' \
     ! -name 'tsconfig.json' \
-    -print0
+    -print0 2>/dev/null
 )
 
 if [ "${#WORKFLOW_FILES[@]}" -eq 0 ]; then
