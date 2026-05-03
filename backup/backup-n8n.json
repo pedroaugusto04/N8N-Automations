@@ -1,17 +1,5 @@
 {
-  "name": "backup",
-  "nodes": [
-    {
-      "parameters": {},
-      "id": "manual-trigger",
-      "name": "Manual Trigger",
-      "type": "n8n-nodes-base.manualTrigger",
-      "typeVersion": 1,
-      "position": [0, 0]
-    }
-  ],
-  "connections": {},
-  "active": false,
-  "settings": {},
-  "versionId": "1"
+  "repo_name": "N8N-Automations",
+  "repo_owner": "pedroaugusto04",
+  "repo_path": "backup/backup-n8n.json"
 }
