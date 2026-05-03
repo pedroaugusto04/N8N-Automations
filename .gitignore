@@ -20,7 +20,6 @@ data/
 *backup-*.json
 !db-backups-google-drive.json
 all-workflows-*.json
-backups/
 *.dump
 *.sql.gz
 *.archive.gz
@@ -45,4 +44,3 @@ evolution-data/
 kb-postgres-data/
 evolution-postgres-data/
 node_modules/
-backups/
