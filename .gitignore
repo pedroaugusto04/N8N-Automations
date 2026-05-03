@@ -16,8 +16,6 @@ data/
 *.export.json
 *.cred.json
 *.cred.export.json
-*-backup*.json
-*backup-*.json
 !db-backups-google-drive.json
 all-workflows-*.json
 *.dump
